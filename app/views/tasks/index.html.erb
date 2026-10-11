@@ -1,69 +1,111 @@
-<div class="container-fluid mb-5">
-  <div class="row mb-4">
-    <div class="col">
-      <div class="d-flex justify-content-between align-items-center">
-        <h1 class="h3 mb-0"><i class="bi bi-list-task"></i> 任务</h1>
-        <%= link_to new_task_path, class: 'btn btn-primary btn-sm' do %>
-          <i class="bi bi-plus-lg me-1"></i>新建任务
-        <% end %>
-      </div>
-      <p class="text-muted mt-2 mb-0">任务把若干脚本下发到若干设备执行，结果与日志可在任务详情中查看。</p>
-    </div>
-  </div>
+<%# 任务列表：Vue 3 + Element Plus，对齐本地客户端 tasks 页（去掉自然语言建任务，那是云端功能）。 %>
+<% content_for :head_late do %>
+  <link rel="stylesheet" href="/vendor/element-plus/index.css">
+<% end %>
 
-  <div class="card shadow-sm">
-    <div class="card-body p-0">
-      <% if @tasks.any? %>
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>名称</th>
-                <th>设备</th>
-                <th>脚本</th>
-                <th>状态</th>
-                <th>进度</th>
-                <th class="text-muted small">创建时间</th>
-                <th class="text-end">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% @tasks.each do |task| %>
-                <tr>
-                  <td><%= link_to task.name, task_path(task), class: 'text-decoration-none' %></td>
-                  <td class="small"><%= task.device_count %></td>
-                  <td class="small"><%= task.script_count %></td>
-                  <td><%= status_badge(task.status) %></td>
-                  <td class="small" style="min-width:120px">
-                    <div class="progress" style="height:6px"><div class="progress-bar" style="width:<%= task.progress %>%"></div></div>
-                    <span class="text-muted"><%= task.progress %>%</span>
-                  </td>
-                  <td class="text-muted small"><%= task.created_at.strftime('%Y-%m-%d %H:%M') %></td>
-                  <td class="text-end">
-                    <%= button_to task_path(task), method: :delete,
-                                  class: 'btn btn-sm btn-outline-danger',
-                                  form: { class: 'd-inline task-delete-form' } do %>
-                      <i class="bi bi-trash me-1"></i>删除
-                    <% end %>
-                  </td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
-      <% else %>
-        <div class="text-center text-muted py-5">
-          <i class="bi bi-inbox fs-1 d-block mb-2"></i>还没有任务。点击右上角「新建任务」创建。
-        </div>
-      <% end %>
-    </div>
-  </div>
+<style>
+  [v-cloak] { display: none; }
+  #tasks-app .el-card__header { border-bottom: none; }
+  #tasks-app .card-title { margin: 0; font-size: 16px; font-weight: 600; color: #303133; }
+</style>
+
+<div class="container-fluid mb-5" id="tasks-app" v-cloak>
+  <el-card>
+    <template #header>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 class="card-title">任务列表</h2>
+        <el-button type="primary" @click="goNew">新建任务</el-button>
+      </div>
+    </template>
+
+    <el-table :data="tasks" stripe style="width:100%" v-loading="loading">
+      <el-table-column label="任务名称" min-width="180">
+        <template #default="scope">
+          <el-link type="primary" @click="goDetail(scope.row.id)">{{ scope.row.name }}</el-link>
+        </template>
+      </el-table-column>
+      <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip></el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="scope"><el-tag :type="getStatusType(scope.row.status)" size="small">{{ scope.row.status_text }}</el-tag></template>
+      </el-table-column>
+      <el-table-column label="进度" width="160">
+        <template #default="scope">
+          <el-progress :percentage="scope.row.progress || 0" :stroke-width="6"></el-progress>
+        </template>
+      </el-table-column>
+      <el-table-column prop="device_count" label="设备数" width="80" align="center"></el-table-column>
+      <el-table-column prop="script_count" label="脚本数" width="80" align="center"></el-table-column>
+      <el-table-column label="创建时间" width="170">
+        <template #default="scope">{{ formatTime(scope.row.created_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="200" fixed="right">
+        <template #default="scope">
+          <el-button type="primary" size="small" link @click="goDetail(scope.row.id)">详情</el-button>
+          <el-button type="warning" size="small" link @click="goEdit(scope.row.id)">编辑</el-button>
+          <el-button v-if="!scope.row.running" type="success" size="small" link @click="startTask(scope.row)">启动</el-button>
+          <el-button type="danger" size="small" link @click="removeTask(scope.row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-empty v-if="!loading && tasks.length === 0" description="还没有任务，点击右上角「新建任务」创建"></el-empty>
+  </el-card>
 </div>
 
+<script src="/vendor/javascripts/vue.global.prod.js"></script>
+<script src="/vendor/element-plus/index.full.js"></script>
 <script>
-  document.querySelectorAll('.task-delete-form').forEach(function (f) {
-    f.addEventListener('submit', function (event) {
-      if (!window.confirm('确定删除该任务吗？其执行记录也会一并删除。')) { event.preventDefault(); }
-    });
-  });
+  (function () {
+    const { createApp, ref, onMounted } = Vue;
+    const csrf = () => document.querySelector('meta[name="csrf-token"]').content;
+
+    createApp({
+      setup() {
+        const tasks = ref([]);
+        const loading = ref(true);
+
+        const load = async () => {
+          loading.value = true;
+          try {
+            const response = await fetch('/tasks.json', { headers: { 'Accept': 'application/json' } });
+            tasks.value = await response.json();
+          } finally { loading.value = false; }
+        };
+
+        const formatTime = (value) => {
+          if (!value) return '';
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return value;
+          const p = (n) => String(n).padStart(2, '0');
+          return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+        };
+        const getStatusType = (s) => ({ pending: 'warning', running: 'primary', completed: 'success', failed: 'danger', cancelled: 'info' }[s] || 'info');
+
+        const goNew = () => { window.location.href = '/tasks/new'; };
+        const goDetail = (id) => { window.location.href = '/tasks/' + id; };
+        const goEdit = (id) => { window.location.href = '/tasks/' + id + '/edit'; };
+
+        const startTask = async (row) => {
+          const response = await fetch('/tasks/' + row.id + '/run', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': csrf(), 'Accept': 'application/json' }
+          });
+          const data = await response.json();
+          if (data.success) { window.location.href = data.path || ('/tasks/' + row.id); }
+          else { ElementPlus.ElMessage.error(data.error || '启动失败'); }
+        };
+
+        const removeTask = async (row) => {
+          if (!window.confirm('确定删除该任务吗？其执行记录也会一并删除。')) return;
+          const response = await fetch('/tasks/' + row.id, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': csrf(), 'Accept': 'application/json' }
+          });
+          if ((await response.json()).success) { await load(); }
+        };
+
+        onMounted(load);
+        return { tasks, loading, formatTime, getStatusType, goNew, goDetail, goEdit, startTask, removeTask };
+      }
+    }).use(ElementPlus).mount('#tasks-app');
+  })();
 </script>

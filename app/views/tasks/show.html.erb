@@ -1,93 +1,411 @@
-<div class="container-fluid mb-5">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <h1 class="h3 mb-1"><i class="bi bi-list-task"></i> <%= @task.name %></h1>
-      <p class="text-muted mb-0"><%= @task.description %></p>
-    </div>
-    <div class="d-flex gap-2">
-      <%= link_to tasks_path, class: 'btn btn-outline-secondary btn-sm' do %>
-        <i class="bi bi-arrow-left me-1"></i>返回
-      <% end %>
-      <% unless @task.running? %>
-        <%= button_to run_task_path(@task), method: :post, class: 'btn btn-primary btn-sm',
-                      form: { class: 'd-inline' } do %>
-          <i class="bi bi-play-fill me-1"></i>运行
-        <% end %>
-      <% else %>
-        <span class="btn btn-primary btn-sm disabled"><span class="spinner-border spinner-border-sm me-1"></span>执行中…</span>
-      <% end %>
-    </div>
+<%# 任务执行页：使用 Vue 3 + Element Plus，布局与本地客户端 task_detail 对齐。
+     数据来自 GET /tasks/:id/status（execution_units = 按设备分组的网元 + 脚本/检查点），
+     运行期轮询原地更新；脚本日志弹窗在脚本运行中自动刷新。 %>
+<% content_for :head_late do %>
+  <link rel="stylesheet" href="/vendor/element-plus/index.css">
+<% end %>
+
+<style>
+  [v-cloak] { display: none; }
+  #task-detail-app .page-header { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
+  #task-detail-app .el-card__header { border-bottom: none; }
+  #task-detail-app .card-title { margin: 0; font-size: 16px; font-weight: 600; color: #303133; }
+
+  .brief { display: flex; flex-direction: column; gap: 4px; }
+  .brief__row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; }
+  .brief__kv { display: inline-flex; align-items: center; gap: 5px; min-height: 20px; }
+  .brief__k { font-size: 13px; color: #909399; white-space: nowrap; }
+  .brief__k::after { content: ':'; margin-left: 1px; color: #c0c4cc; }
+  .brief__v { font-size: 14px; color: #303133; }
+  .brief__v--primary { font-weight: 600; color: #409eff; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .brief__v--muted { color: #606266; }
+  .brief__v--error { color: #f56c6c; }
+  .brief__kv--progress .brief__progress { width: 90px; }
+  .brief__desc, .brief__error { display: flex; align-items: center; gap: 5px; font-size: 14px; overflow: hidden; }
+  .brief__desc .brief__v, .brief__error .brief__v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .checkpoint-list { line-height: 1.6; }
+  .checkpoint-summary { font-size: 14px; font-weight: 500; margin-bottom: 2px; }
+  .checkpoint-item { font-size: 14px; overflow-wrap: anywhere; }
+  .checkpoint-list .is-passed { color: #67c23a; }
+  .checkpoint-list .is-failed { color: #f56c6c; }
+  .checkpoint-list .is-unknown { color: #909399; }
+  .expandable-text__body { line-height: 1.6; font-size: 14px; }
+  .expandable-text__body.is-clamped { max-height: calc(1.6em * var(--clamp-lines, 4)); overflow: hidden; }
+  .expandable-text__toggle { display: inline-block; margin-top: 2px; font-size: 12px; color: #409eff; cursor: pointer; user-select: none; }
+
+  .script-log-view {
+    white-space: normal; overflow: auto; max-height: 65vh; min-height: 24vh;
+    background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 4px;
+    font-family: monospace; font-size: 13px; margin: 0;
+  }
+  .u-muted { color: #909399; }
+  .u-error { color: #f56c6c; }
+  .u-ml-8 { margin-left: 8px; }
+  .u-ml-12 { margin-left: 12px; }
+  .u-mb-12 { margin-bottom: 12px; }
+  .u-mb-16 { margin-bottom: 16px; }
+</style>
+
+<div class="container-fluid mb-5" id="task-detail-app" v-cloak>
+  <div class="page-header">
+    <el-button type="success" @click="goReport">查看报告</el-button>
+    <el-button type="primary" @click="goBack">返回列表</el-button>
   </div>
 
-  <div class="card shadow-sm mb-4">
-    <div class="card-body">
-      <div class="row text-center">
-        <div class="col"><div class="text-muted small">状态</div><div><%= status_badge(@task.status) %></div></div>
-        <div class="col"><div class="text-muted small">进度</div><div class="fw-bold"><%= @task.progress %>%</div></div>
-        <div class="col"><div class="text-muted small">设备</div><div class="fw-bold"><%= @task.device_count %></div></div>
-        <div class="col"><div class="text-muted small">脚本</div><div class="fw-bold"><%= @task.script_count %></div></div>
-        <div class="col"><div class="text-muted small">开始</div><div class="small"><%= @task.started_at&.strftime('%H:%M:%S') || '—' %></div></div>
-        <div class="col"><div class="text-muted small">结束</div><div class="small"><%= @task.completed_at&.strftime('%H:%M:%S') || '—' %></div></div>
+  <div v-loading="loading">
+    <el-card v-if="task" class="u-mb-16">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h2 class="card-title">基本信息</h2>
+          <div>
+            <el-button type="primary" @click="editMode = !editMode">{{ editMode ? '取消编辑' : '编辑' }}</el-button>
+            <el-button v-if="editMode" type="success" :loading="saving" @click="saveTask">保存</el-button>
+            <el-button type="warning" :loading="resetting" @click="resetTask">重置</el-button>
+            <el-button v-if="task.status === 'pending'" type="primary" @click="startTask">开始执行</el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-form v-if="editMode" :model="taskForm" label-width="100px">
+        <el-form-item label="任务名称">
+          <el-input v-model="taskForm.name" style="width: 400px;"></el-input>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="taskForm.description" type="textarea" :rows="3" style="width: 400px;"></el-input>
+        </el-form-item>
+      </el-form>
+
+      <div v-else class="brief">
+        <div class="brief__row">
+          <span class="brief__kv">
+            <span class="brief__k">任务名称</span>
+            <span class="brief__v brief__v--primary" :title="task.name">{{ task.name }}</span>
+          </span>
+          <span class="brief__kv">
+            <span class="brief__k">状态</span>
+            <el-tag :type="getStatusType(task.status)" size="small">{{ task.status_text }}</el-tag>
+          </span>
+          <span class="brief__kv">
+            <span class="brief__k">设备数</span>
+            <span class="brief__v">{{ task.device_count || 0 }}</span>
+          </span>
+          <span class="brief__kv">
+            <span class="brief__k">创建时间</span>
+            <span class="brief__v">{{ formatTime(task.created_at) }}</span>
+          </span>
+          <span class="brief__kv" v-if="task.started_at">
+            <span class="brief__k">开始时间</span>
+            <span class="brief__v">{{ formatTime(task.started_at) }}</span>
+          </span>
+          <span class="brief__kv" v-if="task.completed_at">
+            <span class="brief__k">完成时间</span>
+            <span class="brief__v">{{ formatTime(task.completed_at) }}</span>
+          </span>
+          <span class="brief__kv brief__kv--progress">
+            <span class="brief__k">进度</span>
+            <el-progress class="brief__progress" :percentage="task.progress || 0" :stroke-width="6" :show-text="false"></el-progress>
+            <span class="brief__v">{{ task.progress || 0 }}%</span>
+          </span>
+        </div>
+        <div class="brief__desc" v-if="task.description">
+          <span class="brief__k">描述</span>
+          <span class="brief__v brief__v--muted" :title="task.description">{{ task.description }}</span>
+        </div>
+        <div class="brief__error" v-if="task.error_message">
+          <span class="brief__k u-error">错误</span>
+          <span class="brief__v brief__v--error" :title="task.error_message">{{ task.error_message }}</span>
+        </div>
       </div>
-      <% if @task.error_message.present? %>
-        <div class="alert alert-warning mt-3 mb-0 small"><%= @task.error_message %></div>
-      <% end %>
-    </div>
+    </el-card>
+
+    <el-card v-if="task && task.execution_units" class="u-mb-16">
+      <template #header>
+        <h2 class="card-title">网元</h2>
+      </template>
+      <el-table :data="task.execution_units" stripe style="width: 100%">
+        <el-table-column prop="device_name" label="设备名称" width="140" show-overflow-tooltip></el-table-column>
+        <el-table-column prop="device_ip" label="IP地址" width="130"></el-table-column>
+        <el-table-column prop="description" label="描述" min-width="140" show-overflow-tooltip></el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="scope">
+            <el-tag :type="getUnitStatusType(scope.row.status)" size="small">{{ scope.row.status_text }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="进度" width="150">
+          <template #default="scope">
+            <el-progress :percentage="scope.row.progress || 0" :stroke-width="6"></el-progress>
+          </template>
+        </el-table-column>
+        <el-table-column label="当前正在执行中的脚本" width="200" show-overflow-tooltip>
+          <template #default="scope">
+            <span v-if="scope.row.current_script">{{ scope.row.current_script }}</span>
+            <span v-else>-</span>
+            <el-button v-if="scope.row.current_script" class="u-ml-8" type="primary" size="small" link
+                       @click="showCurrentScriptLog(scope.row)">查看日志</el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="110" fixed="right">
+          <template #default="scope">
+            <el-button type="primary" size="small" @click="showUnitDetail(scope.row)">查看详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </div>
 
-  <% if @task.running? %>
-    <div class="alert alert-info small">任务正在后台执行，<a href="" onclick="location.reload();return false;">刷新</a>查看最新进度。</div>
-  <% end %>
+  <el-dialog v-model="unitDetailDialogVisible" :title="'详情 - ' + (currentUnit ? currentUnit.device_name : '')" width="80%">
+    <div v-if="currentUnit">
+      <h3 class="u-mb-16">脚本列表</h3>
+      <el-table :data="currentUnit.scripts || []" stripe style="width: 100%">
+        <el-table-column prop="name" label="脚本名称" width="200"></el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="scope">
+            <el-tag :type="getScriptStatusType(scope.row.status)" size="small">{{ scriptStatusText(scope.row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="结论摘要" min-width="180">
+          <template #default="scope">
+            <div v-if="scope.row.status === 'partial' && failedCheckpointsOf(scope.row).length" class="checkpoint-list">
+              <expandable-text>
+                <div v-for="(cp, i) in failedCheckpointsOf(scope.row)" :key="i" class="checkpoint-item is-failed">
+                  {{ formatCheckpoint(cp) }}
+                </div>
+              </expandable-text>
+            </div>
+            <span v-else :class="{ 'u-error': ['failed', 'error'].includes(scope.row.status) }">
+              {{ formatConclusion(scope.row) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="检查点结论" min-width="340">
+          <template #default="scope">
+            <div v-if="checkpointsOf(scope.row).length" class="checkpoint-list">
+              <div class="checkpoint-summary" :class="failedCount(scope.row) > 0 ? 'is-failed' : 'is-passed'">
+                {{ passedCount(scope.row) }}/{{ checkpointsOf(scope.row).length }} 通过
+              </div>
+              <expandable-text>
+                <div v-for="(cp, i) in checkpointsOf(scope.row)" :key="i" class="checkpoint-item" :class="checkpointClass(cp)">
+                  {{ formatCheckpoint(cp) }}
+                </div>
+              </expandable-text>
+            </div>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="110" fixed="right">
+          <template #default="scope">
+            <el-button type="primary" size="small" link @click="showScriptLog(scope.row)">查看日志</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+    <template #footer>
+      <el-button @click="unitDetailDialogVisible = false">关闭</el-button>
+    </template>
+  </el-dialog>
 
-  <div class="card shadow-sm">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-      <h6 class="mb-0"><i class="bi bi-list-check me-1"></i>执行结果</h6>
-      <span class="small text-muted">共 <%= @executions.size %> 条</span>
+  <el-dialog v-model="logDetailDialogVisible" :title="'脚本日志 - ' + (currentScript ? currentScript.name : '')" width="90%" top="4vh">
+    <div v-if="currentScript">
+      <div class="u-mb-16">
+        <el-tag :type="getScriptStatusType(currentScript.status)" size="small">{{ scriptStatusText(currentScript.status) }}</el-tag>
+        <span class="u-ml-12 u-muted" v-if="currentScript.started_at">开始: {{ formatTime(currentScript.started_at) }}</span>
+        <span class="u-ml-12 u-muted" v-if="currentScript.completed_at">完成: {{ formatTime(currentScript.completed_at) }}</span>
+      </div>
+      <div class="u-mb-16 u-error" v-if="currentScript.error"><strong>错误:</strong> {{ currentScript.error }}</div>
+      <div class="u-mb-12">
+        <el-button type="primary" size="small" @click="refreshScriptLog">刷新日志</el-button>
+        <el-button type="primary" size="small" @click="copyLog">复制日志</el-button>
+      </div>
+      <div class="script-log-view" v-html="formattedScriptLog"></div>
     </div>
-    <div class="card-body p-0">
-      <% if @executions.any? %>
-        <div class="table-responsive">
-          <table class="table align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>设备</th>
-                <th>脚本</th>
-                <th>状态</th>
-                <th>耗时</th>
-                <th>错误</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% @executions.each do |exec| %>
-                <tr>
-                  <td><%= exec.network_element&.name || exec.network_element_id %></td>
-                  <td><%= exec.script&.name || exec.script_id %></td>
-                  <td><%= status_badge(exec.status) %></td>
-                  <td class="small"><%= exec.duration_seconds ? "#{exec.duration_seconds}s" : '—' %></td>
-                  <td class="small text-danger"><%= truncate(exec.error_message.to_s, length: 80) %></td>
-                </tr>
-                <tr>
-                  <td colspan="5" class="bg-light">
-                    <details>
-                      <summary class="small text-muted">查看日志与结果</summary>
-                      <% if exec.result.present? %>
-                        <div class="small fw-medium mt-2">返回值</div>
-                        <pre class="small bg-white border rounded p-2 mb-2" style="max-height:240px;overflow:auto"><%= JSON.pretty_generate(exec.result) rescue exec.result.inspect %></pre>
-                      <% end %>
-                      <div class="small fw-medium">执行日志</div>
-                      <pre class="small bg-white border rounded p-2 mb-0" style="max-height:320px;overflow:auto"><%= exec.logs.presence || '（无日志）' %></pre>
-                    </details>
-                  </td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
-      <% else %>
-        <div class="text-center text-muted py-5">
-          <i class="bi bi-inbox fs-1 d-block mb-2"></i>还没有执行结果。点击右上角「运行」开始。
-        </div>
-      <% end %>
-    </div>
-  </div>
+    <template #footer>
+      <el-button @click="logDetailDialogVisible = false">关闭</el-button>
+    </template>
+  </el-dialog>
 </div>
+
+<script src="/vendor/javascripts/vue.global.prod.js"></script>
+<script src="/vendor/element-plus/index.full.js"></script>
+<script src="/js/expandable-text.js"></script>
+<script src="/js/script-result.js"></script>
+<script src="/js/script-log.js"></script>
+<script>
+  (function () {
+    const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
+    const taskId = <%= @task.id %>;
+
+    const app = createApp({
+      setup() {
+        const task = ref(null);
+        const loading = ref(true);
+        const saving = ref(false);
+        const resetting = ref(false);
+        const editMode = ref(false);
+        const taskForm = reactive({ name: '', description: '' });
+
+        const unitDetailDialogVisible = ref(false);
+        const currentUnit = ref(null);
+        const logDetailDialogVisible = ref(false);
+        const currentScript = ref(null);
+        const currentScriptLog = ref('');
+
+        // 日志渲染复用公共模块（public/js/script-log.js，语义对齐客户端内联逻辑）
+        const formattedScriptLog = computed(() => window.QingxunScriptLog.renderLog(currentScriptLog.value));
+
+        // 运行中脚本的日志自动刷新（复用公共模块的刷新器）
+        const logRefresher = window.QingxunScriptLog.createLogRefresher({
+          getter: async () => {
+            await fetchTask();
+            const s = currentScript.value;
+            return s ? (s.output || s.logs || '') : '';
+          },
+          isRunning: () => !!(currentScript.value && currentScript.value.status === 'running'),
+          onUpdate: (log) => { if (log) { currentScriptLog.value = log; } }
+        });
+
+        let refreshInterval = null;
+        const FAST_REFRESH_INTERVAL = 2000;   // 任务运行中：2 秒
+        const NORMAL_REFRESH_INTERVAL = 10000; // 其余：10 秒
+
+        const formatTime = (value) => {
+          if (!value) return '';
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return value;
+          const p = (n) => String(n).padStart(2, '0');
+          return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' '
+            + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+        };
+
+
+        // 状态/检查点渲染复用公共模块（public/js/script-result.js）
+        const SR = window.QingxunScriptResult;
+        const getStatusType = SR.getStatusType;
+        const getUnitStatusType = SR.getUnitStatusType;
+        const getScriptStatusType = SR.getScriptStatusType;
+        const scriptStatusText = SR.scriptStatusText;
+        const checkpointsOf = SR.checkpointsOf;
+        const failedCheckpointsOf = SR.failedCheckpointsOf;
+        const passedCount = SR.passedCount;
+        const failedCount = SR.failedCount;
+        const formatCheckpoint = SR.formatCheckpoint;
+        const checkpointClass = SR.checkpointClass;
+        const formatConclusion = SR.formatConclusion;
+
+        // 轮询刷新后，把已打开的弹窗指向最新对象（否则弹窗状态停在打开那一刻）
+        const syncOpenDialogs = () => {
+          const units = (task.value && task.value.execution_units) || [];
+          const unit = units.find((u) => currentUnit.value && u.id === currentUnit.value.id);
+          if (unit && currentUnit.value) currentUnit.value = unit;
+
+          const name = currentScript.value && currentScript.value.name;
+          const fresh = unit && (unit.scripts || []).find((s) => s.name === name);
+          if (fresh) currentScript.value = fresh;
+
+          if (fresh && fresh.status !== 'running') { logRefresher.stop(); }
+        };
+
+        const fetchTask = async () => {
+          try {
+            const response = await fetch('/tasks/' + taskId + '/status', { headers: { 'Accept': 'application/json' } });
+            if (!response.ok) throw new Error('获取任务失败');
+            task.value = await response.json();
+            taskForm.name = task.value.name || '';
+            taskForm.description = task.value.description || '';
+            syncOpenDialogs();
+          } catch (e) {
+            console.error(e);
+          } finally {
+            loading.value = false;
+          }
+        };
+
+        const startTask = async () => {
+          const response = await fetch('/tasks/' + taskId + '/run', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content, 'Accept': 'application/json' }
+          });
+          const data = await response.json().catch(() => ({}));
+          if (response.ok && data.success) { await fetchTask(); resetRefreshInterval(); }
+          else { ElementPlus.ElMessage.warning(data.error || '启动失败'); }
+        };
+        const resetTask = async () => {
+          resetting.value = true;
+          try {
+            const response = await fetch('/tasks/' + taskId + '/reset', {
+              method: 'POST',
+              headers: { 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content, 'Accept': 'application/json' }
+            });
+            if (response.ok) { await fetchTask(); }
+          } finally { resetting.value = false; }
+        };
+        const saveTask = async () => {
+          saving.value = true;
+          try {
+            const response = await fetch('/tasks/' + taskId, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content, 'Accept': 'application/json' },
+              body: JSON.stringify({ task: { name: taskForm.name, description: taskForm.description } })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (response.ok && data.success) { await fetchTask(); editMode.value = false; }
+            else { ElementPlus.ElMessage.error((data.errors || ['保存失败']).join('；')); }
+          } finally { saving.value = false; }
+        };
+
+        const goBack = () => { window.location.href = '/tasks'; };
+        const goReport = () => { window.location.href = '/tasks/' + taskId + '/report'; };
+
+        const showUnitDetail = (unit) => { currentUnit.value = unit; unitDetailDialogVisible.value = true; };
+        const showCurrentScriptLog = (unit) => {
+          currentUnit.value = unit;
+          const running = (unit.scripts || []).find((s) => s.status === 'running');
+          if (running) showScriptLog(running);
+        };
+        const showScriptLog = (script) => {
+          currentScript.value = script;
+          currentScriptLog.value = (script && (script.output || script.logs)) || '';
+          logDetailDialogVisible.value = true;
+          logRefresher.stop();
+          if (script && script.status === 'running') { logRefresher.start(); }
+        };
+        const refreshScriptLog = async () => {
+          await fetchTask();
+          if (currentScript.value) {
+            currentScriptLog.value = currentScript.value.output || currentScript.value.logs || currentScriptLog.value;
+          }
+        };
+        const copyLog = async () => {
+          try { await navigator.clipboard.writeText(currentScriptLog.value || ''); }
+          catch (e) { console.error('复制失败', e); }
+        };
+
+        const getRefreshInterval = () => (task.value && task.value.status === 'running') ? FAST_REFRESH_INTERVAL : NORMAL_REFRESH_INTERVAL;
+        const resetRefreshInterval = () => {
+          if (refreshInterval) clearInterval(refreshInterval);
+          refreshInterval = setInterval(() => { if (!editMode.value && !saving.value) fetchTask(); }, getRefreshInterval());
+        };
+
+        onMounted(async () => {
+          await fetchTask();
+          resetRefreshInterval();
+        });
+        onUnmounted(() => {
+          if (refreshInterval) clearInterval(refreshInterval);
+          logRefresher.stop();
+        });
+
+        return {
+          task, loading, saving, resetting, editMode, taskForm,
+          unitDetailDialogVisible, currentUnit, logDetailDialogVisible, currentScript, currentScriptLog, formattedScriptLog,
+          formatTime, getStatusType, getUnitStatusType, getScriptStatusType, scriptStatusText,
+          checkpointsOf, failedCheckpointsOf, passedCount, failedCount, formatCheckpoint, checkpointClass, formatConclusion,
+          startTask, resetTask, saveTask, goBack, goReport, showUnitDetail, showCurrentScriptLog, showScriptLog, refreshScriptLog, copyLog
+        };
+      }
+    });
+    app.use(ElementPlus);
+    app.component('ExpandableText', window.ExpandableText);
+    app.mount('#task-detail-app');
+  })();
+</script>

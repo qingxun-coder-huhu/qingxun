@@ -1,269 +1,158 @@
-<div class="container-fluid mb-5">
-  <!-- Rails flash 消息 -->
-  <% if flash.now[:alert] %>
-    <div class="alert alert-danger alert-dismissible fade show" role="alert">
-      <i class="bi bi-exclamation-triangle-fill me-2"></i><%= flash.now[:alert] %>
-      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-  <% end %>
-  <% if flash.now[:notice] %>
-    <div class="alert alert-success alert-dismissible fade show" role="alert">
-      <i class="bi bi-check-circle-fill me-2"></i><%= flash.now[:notice] %>
-      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-  <% end %>
+<%# 自定义集成：Vue 3 + Element Plus，对齐本地客户端 custom_integration 页（去掉云端服务器版本/同步）。
+     支持函数增删、保存、查看编辑历史。 %>
+<% content_for :head_late do %>
+  <link rel="stylesheet" href="/vendor/element-plus/index.css">
+<% end %>
 
-  <!-- 保存成功提示 -->
-  <div id="save-success-alert" class="alert alert-success alert-dismissible fade d-none" role="alert">
-    <i class="bi bi-check-circle me-2"></i>保存成功
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+<style>
+  [v-cloak] { display: none; }
+  #custom-integration-app .el-card__header { border-bottom: none; }
+  #custom-integration-app .card-title { margin: 0; font-size: 16px; font-weight: 600; color: #303133; }
+  .code-view {
+    white-space: pre; overflow: auto; max-height: 50vh; background: #1e1e1e; color: #d4d4d4;
+    padding: 12px; border-radius: 4px; font-family: monospace; font-size: 12.5px; margin: 0;
+  }
+  .fn-row { border: 1px solid #ebeef5; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+  .history-list { max-height: 60vh; overflow: auto; }
+  .history-code { white-space: pre; overflow: auto; max-height: 220px; background: #1e1e1e; color: #d4d4d4;
+    padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-top: 6px; }
+</style>
+
+<div class="container-fluid mb-5" id="custom-integration-app" v-cloak>
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">自定义集成</h1>
+    <div class="d-flex gap-2">
+      <el-button @click="historyVisible = true">查看历史</el-button>
+      <el-button @click="goBack">返回脚本生成器</el-button>
+    </div>
   </div>
 
-  <div class="row mb-4">
-    <div class="col">
-      <h1 class="h2 fw-light">
-        <i class="bi bi-tools me-2 text-primary"></i>我的自定义集成
-      </h1>
-      <p class="text-muted mt-2 mb-0">定义你的自定义函数，在脚本中通过 <code>custom.函数名</code> 调用</p>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="col-12 col-lg-6">
-      <div class="card border-0 shadow-sm">
-        <div class="card-body overflow-auto">
-          <%= form_with model: @integration, url: custom_integration_path, method: :patch, html: { id: 'integration-form' } do |f| %>
-            <div id="functions-container">
-              <% (@integration.functions.presence || [{}]).each_with_index do |func, index| %>
-                <div class="function-row mb-4 p-3 border rounded">
-                  <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h6 class="mb-0">函数 <%= index + 1 %></h6>
-                    <% if index > 0 %>
-                      <button type="button" class="btn btn-outline-danger btn-sm remove-function-btn">
-                        <i class="bi bi-trash"></i> 删除
-                      </button>
-                    <% end %>
-                  </div>
-                  <div class="row g-3">
-                    <div class="col-12 col-md-4">
-                      <label class="form-label fw-medium text-muted">函数名（如 send_alarm）</label>
-                      <input type="text" name="functions[<%= index %>][name]"
-                             class="form-control"
-                             value="<%= func['name'] %>>
-                    </div>
-                    <div class="col-12 col-md-8">
-                      <label class="form-label fw-medium text-muted">参数示例 (JSON) 如 {"cpu": 90, "host": "server1"}</label>
-                      <input type="text" name="functions[<%= index %>][param_example]"
-                             class="form-control font-monospace"
-                             value="<%= func['param_example'] %>>
-                    </div>
-                    <div class="col-12">
-                      <label class="form-label fw-medium text-muted">模拟响应 (JSON) 如 {"success": true, "message": "alarm sent"}</label>
-                      <textarea name="functions[<%= index %>][mock_response]"
-                                class="form-control font-monospace" rows="3"><%= func['mock_response'] %></textarea>
-                    </div>
-                  </div>
-                </div>
-              <% end %>
-            </div>
-
-            <button type="button" class="btn btn-outline-secondary btn-sm mb-4" id="add-function-btn">
-              <i class="bi bi-plus-lg me-1"></i>添加函数
-            </button>
-
-            <div class="d-flex justify-content-end gap-2 pt-3 border-top">
-              <%= link_to '返回脚本生成器', scripts_path, class: 'btn btn-outline-secondary' %>
-              <%= f.submit '保存', class: 'btn btn-primary' %>
-            </div>
-          <% end %>
+  <div v-loading="loading">
+    <el-card class="mb-3">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h2 class="card-title">自定义函数</h2>
+          <el-button type="primary" size="small" @click="addFunction">添加函数</el-button>
         </div>
-      </div>
-    </div>
+      </template>
 
-    <div class="col-12 col-lg-6">
-      <div class="card border-0 shadow-sm">
-        <div class="card-body overflow-auto">
-          <h6 class="mb-3">
-            <i class="bi bi-lightbulb me-2 text-muted"></i>使用提示
-          </h6>
-          <div class="text-muted small mb-4">
-            <p class="mb-2">在脚本生成时，你可以在需求中说明：</p>
-            <ul class="mb-0">
-              <li class="mb-1">将解析出的数据通过 <code>custom.函数名( 参数 )</code> 发送给自定义接口</li>
-              <li class="mb-1">参数格式需符合你定义的参数示例，如 <code>{"cpu": 90}</code></li>
-              <li>服务端调试时会返回你预设的模拟响应</li>
-            </ul>
+      <div v-for="(fn, index) in functions" :key="index" class="fn-row">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <el-input v-model="fn.name" placeholder="函数名（小写字母/数字/下划线，如 send_alarm）" style="width:320px"></el-input>
+          <el-button type="danger" size="small" link @click="removeFunction(index)">删除</el-button>
+        </div>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <div class="text-muted small mb-1">参数示例（JSON 对象）</div>
+            <el-input v-model="fn.param_example" type="textarea" :rows="4" placeholder='{"cpu": 90}'></el-input>
+          </el-col>
+          <el-col :span="12">
+            <div class="text-muted small mb-1">模拟响应（JSON 对象）</div>
+            <el-input v-model="fn.mock_response" type="textarea" :rows="4" placeholder='{"success": true}'></el-input>
+          </el-col>
+        </el-row>
+      </div>
+
+      <el-empty v-if="functions.length === 0" description="还没有自定义函数，点击右上角「添加函数」"></el-empty>
+
+      <div class="mt-3">
+        <el-input v-model="notes" placeholder="备注（可选，会记入编辑历史）" style="max-width:420px"></el-input>
+      </div>
+      <div class="mt-3">
+        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+      </div>
+    </el-card>
+
+    <el-card>
+      <template #header><h2 class="card-title">生成的集成代码（供脚本使用）</h2></template>
+      <pre class="code-view">{{ exampleCode || '# 无自定义函数' }}</pre>
+      <p class="text-muted small mt-2 mb-0">
+        脚本中通过 <code>uses_integration :custom</code> 声明后，即可用 <code>custom.函数名({...})</code> 调用。
+      </p>
+    </el-card>
+  </div>
+
+  <!-- 编辑历史 -->
+  <el-drawer v-model="historyVisible" title="编辑历史" size="52%">
+    <div class="history-list">
+      <el-timeline v-if="history.length">
+        <el-timeline-item v-for="(item, index) in history" :key="index" :timestamp="formatTime(item.created_at)" placement="top">
+          <div><el-tag size="small">{{ item.version_hash }}</el-tag>
+            <span class="text-muted small ms-2" v-if="item.notes">{{ item.notes }}</span>
           </div>
-
-          <h6 class="mb-3">
-            <i class="bi bi-code-slash me-2 text-primary"></i>生成代码
-          </h6>
-          <pre class="bg-light p-3 rounded small m-0"><code id="integration-example-code" class="language-ruby"><%= @generated_example_code %></code></pre>
-        </div>
-      </div>
+          <pre class="history-code">{{ item.generated_code }}</pre>
+        </el-timeline-item>
+      </el-timeline>
+      <el-empty v-else description="暂无历史记录"></el-empty>
     </div>
-  </div>
+  </el-drawer>
 </div>
 
+<script src="/vendor/javascripts/vue.global.prod.js"></script>
+<script src="/vendor/element-plus/index.full.js"></script>
 <script>
-let functionIndex = <%= @integration.functions.size || 1 %>;
+  (function () {
+    const { createApp, ref, onMounted } = Vue;
+    const csrf = () => document.querySelector('meta[name="csrf-token"]').content;
 
-// 重新计算所有函数行的索引
-function reindexFunctionRows() {
-  const rows = document.querySelectorAll('.function-row');
-  rows.forEach((row, index) => {
-    // 更新标题
-    const title = row.querySelector('h6');
-    if (title) {
-      title.textContent = `函数 ${index + 1}`;
-    }
+    createApp({
+      setup() {
+        const functions = ref([]);
+        const exampleCode = ref('');
+        const history = ref([]);
+        const notes = ref('');
+        const loading = ref(true);
+        const saving = ref(false);
+        const historyVisible = ref(false);
 
-    // 更新所有input/textarea的name属性
-    const nameInput = row.querySelector('input[name$="[name]"]');
-    const paramInput = row.querySelector('input[name$="[param_example]"]');
-    const mockTextarea = row.querySelector('textarea[name$="[mock_response]"]');
+        const load = async () => {
+          loading.value = true;
+          try {
+            const response = await fetch('/custom_integration.json', { headers: { 'Accept': 'application/json' } });
+            const data = await response.json();
+            functions.value = (data.functions || []).map((f) => ({
+              name: f.name || '', param_example: f.param_example || '', mock_response: f.mock_response || ''
+            }));
+            exampleCode.value = data.example_code || '';
+            history.value = data.history || [];
+          } finally { loading.value = false; }
+        };
 
-    if (nameInput) nameInput.name = `functions[${index}][name]`;
-    if (paramInput) paramInput.name = `functions[${index}][param_example]`;
-    if (mockTextarea) mockTextarea.name = `functions[${index}][mock_response]`;
-  });
+        const addFunction = () => { functions.value.push({ name: '', param_example: '', mock_response: '' }); };
+        const removeFunction = (index) => { functions.value.splice(index, 1); };
+        const goBack = () => { window.location.href = '/scripts'; };
 
-  // 更新全局functionIndex（用于添加新函数）
-  functionIndex = rows.length;
-}
+        const save = async () => {
+          saving.value = true;
+          try {
+            const response = await fetch('/custom_integration.json', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf(), 'Accept': 'application/json' },
+              body: JSON.stringify({ functions: functions.value, notes: notes.value })
+            });
+            const data = await response.json();
+            if (data.success) {
+              ElementPlus.ElMessage.success('已保存');
+              notes.value = '';
+              await load();
+            } else {
+              ElementPlus.ElMessage.error((data.errors || ['保存失败']).join('；'));
+            }
+          } finally { saving.value = false; }
+        };
 
-document.getElementById('add-function-btn').addEventListener('click', function() {
-  const container = document.getElementById('functions-container');
-  const newRow = document.createElement('div');
-  newRow.className = 'function-row mb-4 p-3 border rounded';
-  newRow.innerHTML = `
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h6 class="mb-0">函数 ${functionIndex + 1}</h6>
-      <button type="button" class="btn btn-outline-danger btn-sm remove-function-btn">
-        <i class="bi bi-trash"></i> 删除
-      </button>
-    </div>
-    <div class="row g-3">
-      <div class="col-12 col-md-4">
-        <label class="form-label fw-medium text-muted">函数名（如 send_alarm）</label>
-        <input type="text" name="functions[${functionIndex}][name]"
-               class="form-control">
-      </div>
-      <div class="col-12 col-md-8">
-        <label class="form-label fw-medium text-muted">参数示例 (JSON) 如 {"cpu": 90, "host": "server1"}</label>
-        <input type="text" name="functions[${functionIndex}][param_example]"
-               class="form-control font-monospace">
-      </div>
-      <div class="col-12">
-        <label class="form-label fw-medium text-muted">模拟 响应 (JSON) 如 {"success": true, "message": "alarm sent"}</label>
-        <textarea name="functions[${functionIndex}][mock_response]"
-                  class="form-control font-monospace" rows="3"></textarea>
-      </div>
-    </div>
-  `;
-  container.appendChild(newRow);
-  functionIndex++;
-});
+        const formatTime = (value) => {
+          if (!value) return '';
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return value;
+          const p = (n) => String(n).padStart(2, '0');
+          return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+        };
 
-document.getElementById('functions-container').addEventListener('click', function(e) {
-  if (e.target.closest('.remove-function-btn')) {
-    const row = e.target.closest('.function-row');
-    row.remove();
-
-    // 重新计算所有行的索引
-    reindexFunctionRows();
-  }
-});
-
-// 页面加载完成后高亮示例代码
-document.addEventListener('DOMContentLoaded', function() {
-  const codeEl = document.getElementById('integration-example-code');
-  if (codeEl && typeof hljs !== 'undefined') {
-    hljs.highlightElement(codeEl);
-  }
-});
-
-// 表单提交成功提示
-document.getElementById('integration-form').addEventListener('submit', function(e) {
-  e.preventDefault();
-
-  const form = e.target;
-  const formData = new FormData(form);
-  const alert = document.getElementById('save-success-alert');
-  const submitBtn = form.querySelector('input[type="submit"], button[type="submit"]');
-
-  // 禁用提交按钮防止重复提交
-  submitBtn.disabled = true;
-  submitBtn.textContent = '保存中...';
-
-  // 获取 CSRF token
-  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-
-  const headers = {
-    'X-Requested-With': 'XMLHttpRequest',
-    'Accept': 'application/json'
-  };
-
-  if (csrfToken) {
-    headers['X-CSRF-Token'] = csrfToken;
-  }
-
-  fetch(form.action, {
-    method: 'PATCH',
-    body: formData,
-    headers: headers
-  })
-  .then(response => {
-    if (response.ok) {
-      return response.json();
-    } else if (response.status === 422) {
-      return response.json().then(data => {
-        throw new Error(data.errors ? data.errors.join(', ') : '保存失败');
-      });
-    } else {
-      throw new Error('保存失败: ' + response.status);
-    }
-  })
-  .then(data => {
-    // 显示成功提示
-    alert.className = 'alert alert-success alert-dismissible fade show';
-    alert.innerHTML = '<i class="bi bi-check-circle me-2"></i>保存成功<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
-
-    // 8秒后自动隐藏
-    setTimeout(function() {
-      alert.classList.remove('show');
-      alert.classList.add('hide');
-      setTimeout(function() {
-        alert.classList.add('d-none');
-      }, 150);
-    }, 8000);
-  })
-  .catch(error => {
-    console.error('保存失败:', error);
-
-    // 使用服务器返回的具体错误消息
-    const errorMessage = error.message || '保存失败，请重试';
-    alert.classList.remove('alert-success');
-    alert.classList.add('alert-danger');
-    alert.innerHTML = '<i class="bi bi-exclamation-circle me-2"></i>' + errorMessage;
-    alert.classList.remove('d-none', 'hide');
-    alert.classList.add('show');
-
-    // 错误显示10秒后自动隐藏
-    setTimeout(function() {
-      alert.classList.remove('show');
-      alert.classList.add('hide');
-      setTimeout(function() {
-        alert.classList.add('d-none');
-        // 重置为初始状态（隐藏的成功提示）
-        alert.className = 'alert alert-success alert-dismissible fade d-none';
-        alert.innerHTML = '<i class="bi bi-check-circle me-2"></i>保存成功<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
-      }, 150);
-    }, 10000);
-  })
-  .finally(() => {
-    submitBtn.disabled = false;
-    submitBtn.textContent = '保存';
-  });
-});
+        onMounted(load);
+        return { functions, exampleCode, history, notes, loading, saving, historyVisible,
+                 addFunction, removeFunction, goBack, save, formatTime };
+      }
+    }).use(ElementPlus).mount('#custom-integration-app');
+  })();
 </script>

@@ -1,113 +1,90 @@
 # frozen_string_literal: true
 
-require_relative 'device_runner'
+require_relative 'task_execution_adapter'
 
-# 任务编排：把任务下的「设备 × 脚本」组合并发下发到真机执行，记录每条结果。
+# 任务执行入口（应用侧薄封装）
 #
-# 业务逻辑：
-#   - 任务通过 task_network_elements / task_scripts 关联设备与脚本；
-#   - 每个组合产出一行 TaskExecution（状态/日志/返回值）；
-#   - 并发度取 config/qingxun.yml 的 execution.max_concurrent_devices；
-#   - 实时更新任务进度，结束后置为 completed / failed。
+# 编排逻辑**逐字复用**本地客户端的编排层：
+#   `TaskExecutionCoordinator` → `DeviceExecutionProcessor` → `ScriptExecutor` / `DeviceLoginHandler`
+#   → `TaskFinalizer`（收尾）；状态与目录由 `TaskExecutionAdapter` 映射到本应用的模型。
+#
+# 本类只负责：注册运行态、建适配器、提交给协调器、等执行结束后停掉线程池。
 #
 # 隐性知识：
-#   1. 设备 IO 很慢（登录 + 逐条命令），因此并发用线程实现；但数据库连接是稀缺资源，
-#      每个工作线程用 connection_pool.with_connection 包住自己那份活，避免超发连接。
-#   2. 长任务不该占住请求线程：控制器用 start_async 起后台线程，页面轮询进度。
+#   1. 裸 Thread 不参与 Rails executor，借出的连接不会自动归还，线程结束要显式 release。
+#   2. 协调器的线程池按连接池上限设置（客户端固定 20，池小会互相等待超时）。
+#   3. 逐字复用编排层后**不再支持取消**（客户端编排没有取消机制）：`cancel` 保留为空实现。
 class TaskRunner
+  class << self
+    def registry
+      @registry ||= {}
+    end
+
+    def registry_mutex
+      @registry_mutex ||= Mutex.new
+    end
+
+    def register(task_id, adapter)
+      registry_mutex.synchronize { registry[task_id] = adapter }
+    end
+
+    def unregister(task_id)
+      registry_mutex.synchronize { registry.delete(task_id) }
+    end
+
+    def running?(task_id)
+      registry_mutex.synchronize { registry.key?(task_id) }
+    end
+
+    # 保留签名以免调用方报错；逐字复用客户端编排层后不支持中断
+    def cancel(_task_id)
+      false
+    end
+
+    def cancelled?(_task_id)
+      false
+    end
+
+    # 后台执行（控制器调用）
+    def start_async(task)
+      Thread.new do
+        begin
+          new(task).call
+        rescue StandardError => e
+          Rails.logger.error("[TaskRunner] 后台执行异常：#{e.class}: #{e.message}")
+        ensure
+          ActiveRecord::Base.connection_pool.release_connection
+        end
+      end
+    end
+  end
+
   def initialize(task)
     @task = task
   end
 
-  # 后台执行（控制器调用）
-  def self.start_async(task)
-    Thread.new { new(task).call }
-  end
-
   def call
-    @task.update!(status: 'running', started_at: Time.current, completed_at: nil,
-                  error_message: nil, progress: 0)
+    # 每次运行建一条执行记录（保留历史），执行单元归属到本次运行
+    run = @task.task_runs.create!(status: 'running', progress: 0, started_at: Time.current)
+    adapter = TaskExecutionAdapter.new(@task, run: run)
+    self.class.register(@task.id, adapter)
+    @task.update_columns(status: 'running', started_at: Time.current,
+                         completed_at: nil, error_message: nil, progress: 0)
 
-    devices = ordered(@task.network_elements)
-    scripts = ordered_scripts
-    units = devices.product(scripts)
-
-    if units.empty?
-      @task.update!(status: 'failed', completed_at: Time.current, progress: 100,
-                    error_message: '任务没有可执行的设备或脚本')
-      return
-    end
-
-    concurrency = [(QingxunConfig.execution[:max_concurrent_devices] || 4).to_i, 1].max
-    total = units.size
-    done = 0
-    failures = 0
-    mutex = Mutex.new
-    queue = Queue.new
-    units.each { |u| queue << u }
-
-    workers = [concurrency, total].min
-    threads = Array.new(workers) do
-      Thread.new do
-        loop do
-          unit = begin
-            queue.pop(true)
-          rescue ThreadError
-            nil
-          end
-          break unless unit
-
-          ok = process_unit(*unit)
-          mutex.synchronize do
-            done += 1
-            failures += 1 unless ok
-            @task.update_columns(progress: ((done * 100.0) / total).round)
-          end
-        end
-      end
-    end
-    threads.each(&:join)
-
-    @task.update!(
-      status: failures.zero? ? 'completed' : 'failed',
-      progress: 100,
-      completed_at: Time.current,
-      result: { total: total, failures: failures, succeeded: total - failures },
-      error_message: failures.zero? ? nil : "#{failures}/#{total} 个执行项失败"
-    )
-  rescue StandardError => e
-    @task.update!(status: 'failed', completed_at: Time.current, error_message: e.message)
+    coordinator = TaskExecutionCoordinator.new(pool_size: worker_count)
+    coordinator.submit_task(@task, adapter)
+    adapter.wait_until_done
+    coordinator.stop(wait: false)
+  ensure
+    self.class.unregister(@task.id)
   end
 
   private
 
-  # 执行一个「设备 × 脚本」组合，写一行 TaskExecution。返回是否成功。
-  def process_unit(device, script)
-    ActiveRecord::Base.connection_pool.with_connection do
-      exec = TaskExecution.find_or_initialize_by(
-        task: @task, network_element_id: device.id, script_id: script.id
-      )
-      exec.update!(status: 'running', started_at: Time.current)
-
-      outcome = DeviceRunner.new(device, script).run
-
-      exec.update!(
-        status: outcome[:success] ? 'completed' : 'failed',
-        logs: Array(outcome[:logs]).join("\n"),
-        result: outcome[:result] || {},
-        error_message: outcome[:error],
-        duration_ms: outcome[:duration_ms],
-        finished_at: Time.current
-      )
-      outcome[:success]
-    end
-  end
-
-  def ordered(relation)
-    relation.order(:created_at).to_a
-  end
-
-  def ordered_scripts
-    @task.scripts.order('task_scripts.sequence ASC, task_scripts.id ASC').to_a
+  # 线程数不超过数据库连接池，避免工作线程互相等待连接超时
+  def worker_count
+    configured = (QingxunConfig.execution[:max_concurrent_devices] || 4).to_i
+    cap = [ActiveRecord::Base.connection_pool.size - 1, 1].max
+    [[configured, 1].max, cap].min
   end
 end

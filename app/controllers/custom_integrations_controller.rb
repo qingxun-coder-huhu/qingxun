@@ -11,6 +11,11 @@ class CustomIntegrationsController < ApplicationController
     else
       IntegrationCodeBuilder.build_code(valid_functions)
     end
+
+    respond_to do |format|
+      format.html
+      format.json { render json: integration_json(@integration, @generated_example_code) }
+    end
   end
 
   def update
@@ -32,9 +37,10 @@ class CustomIntegrationsController < ApplicationController
       return render_validation_failure(build_result[:errors])
     end
 
-    # 阶段4：保存（只有前三个阶段都通过才执行）
+    # 阶段4：保存（只有前三个阶段都通过才执行）；保存前记一份历史快照
     @integration.functions = valid_functions
     @integration.generated_code = build_result[:code]
+    @integration.record_history!(notes: params[:notes])
 
     if @integration.save
       # 清除缓存，确保脚本立即使用新配置
@@ -47,12 +53,34 @@ class CustomIntegrationsController < ApplicationController
 
   private
 
+  # 页面/接口数据
+  def integration_json(integration, example_code)
+    {
+      functions: integration.functions,
+      generated_code: integration.generated_code,
+      example_code: example_code,
+      version_hash: integration.version_hash,
+      updated_at: integration.updated_at&.iso8601,
+      history: Array(integration.history)
+    }
+  end
+
   # 安全地从参数中提取函数数组
   def extract_functions_from_params
     functions_param = params[:functions]
 
     # 如果参数不存在或为空，返回空数组
     return [] if functions_param.blank?
+
+    # 数组形态（Vue 页面直接提交数组）：逐项转为普通 Hash
+    if functions_param.is_a?(Array)
+      return functions_param.map do |f|
+        if f.respond_to?(:to_unsafe_h) then f.to_unsafe_h
+        elsif f.respond_to?(:to_h) then f.to_h
+        else f
+        end
+      end
+    end
 
     # 处理 ActionController::Parameters 对象
     if functions_param.is_a?(ActionController::Parameters)
@@ -151,7 +179,7 @@ class CustomIntegrationsController < ApplicationController
   def render_success
     respond_to do |format|
       format.html { redirect_to custom_integration_path, notice: "集成已更新" }
-      format.json { render json: { success: true } }
+      format.json { render json: { success: true, version_hash: @integration.version_hash } }
     end
   end
 

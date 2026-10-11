@@ -92,33 +92,39 @@ class ScriptsController < ApplicationController
   # 搜索走前端（见视图里的 script-search）：本页一次性渲染全部脚本、无分页，
   # 前端过滤即可覆盖全部数据，且能同时匹配名称/描述/设备型号而无需往返服务端。
   def my_scripts
-    unless logged_in?
-      redirect_to scripts_path, alert: '请先填写 LLM API Key 或录入识别码'
-      return
-    end
-
     all_scripts = current_user.scripts
     @total_count = all_scripts.count
     @debugged_count = all_scripts.debugged.count
     @debugging_count = all_scripts.debugging.count
 
     @scripts = all_scripts.order(updated_at: :desc)
+
+    respond_to do |format|
+      format.html
+      format.json do
+        render json: {
+          stats: { total: @total_count, debugged: @debugged_count, debugging: @debugging_count },
+          scripts: @scripts.map { |s| script_list_json(s) }
+        }
+      end
+    end
   end
 
   # 删除脚本
   # DELETE /scripts/:id
   def destroy
-    unless logged_in?
-      redirect_to scripts_path, alert: '请先填写 LLM API Key 或录入识别码'
-      return
-    end
-
     @script = current_user.scripts.find(params[:id])
     @script.destroy
 
-    redirect_to my_scripts_scripts_path, notice: '脚本删除成功'
+    respond_to do |format|
+      format.json { render json: { success: true } }
+      format.html { redirect_to my_scripts_scripts_path, notice: '脚本删除成功' }
+    end
   rescue ActiveRecord::RecordNotFound
-    redirect_to my_scripts_scripts_path, alert: '脚本不存在或您没有权限删除'
+    respond_to do |format|
+      format.json { render json: { success: false, error: '脚本不存在' }, status: :not_found }
+      format.html { redirect_to my_scripts_scripts_path, alert: '脚本不存在或您没有权限删除' }
+    end
   end
 
   # 生成脚本
@@ -944,4 +950,18 @@ class ScriptsController < ApplicationController
   end
   
   
+# 「我的脚本」列表条目（JSON）
+def script_list_json(script)
+  {
+    id: script.id, script_uid: script.script_uid, name: script.name,
+    description: script.description, device_models: script.device_models || [],
+    publish_status: script.publish_status,
+    publish_status_text: script.debugged? ? '调试完成' : '调试中',
+    usage_count: script.usage_count, version: script.version,
+    updated_at: script.updated_at&.iso8601,
+    command_mapping: script.command_mapping,
+    code: script.code
+  }
+end
+
 end

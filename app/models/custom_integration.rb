@@ -24,6 +24,30 @@ class CustomIntegration < ApplicationRecord
     find_or_create_by(user: user)
   end
 
+  # 版本哈希（以生成代码为准，取前 8 位）
+  def version_hash
+    return nil if generated_code.blank?
+
+    Digest::SHA256.hexdigest(generated_code)[0, 8]
+  end
+
+  # 记录一次编辑历史快照（保留最近 30 条）。
+  #
+  # 隐性知识：快照存**函数定义与生成代码**本身，而不是对"当前状态"的引用；
+  # 这样历史条目不随当前记录变化，将来也便于做回滚。
+  def record_history!(notes: nil)
+    return if generated_code.blank?
+
+    snapshot = {
+      'version_hash' => version_hash,
+      'functions' => functions,
+      'generated_code' => generated_code,
+      'notes' => notes.to_s,
+      'created_at' => Time.current.iso8601
+    }
+    self.history = ([snapshot] + Array(history)).first(30)
+  end
+
   # 获取所有函数名
   def function_names
     functions.pluck("name")

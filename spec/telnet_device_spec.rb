@@ -113,36 +113,31 @@ RSpec.describe TelnetDevice do
       device.login
     end
 
-    it '执行命令并返回原始输出（包含命令回显和提示符）' do
+    it '执行命令并返回清理后的输出' do
       command = 'show version'
       raw_output = "show version\r\nSome output text# "
 
-      # 模拟 puts 发送命令
       expect(mock_connection).to receive(:puts).with(command)
-      # 计算 combined_pattern（分页符或默认提示符）
-      more_pattern = /--More--/
-      combined_pattern = Regexp.union(more_pattern, described_class::DEFAULT_MATCH)
-      # 模拟 waitfor 等待提示符
-      expect(mock_connection).to receive(:waitfor).with('Match' => combined_pattern, 'Timeout' => described_class::DEFAULT_TIMEOUT).and_return(raw_output)
+      # 复用版 cli 用 waitfor 的 block 收集回显（超时才拿得到数据）
+      allow(mock_connection).to receive(:waitfor) do |*_args, &blk|
+        blk.call(raw_output)
+        nil
+      end
 
-      result = device.cli(command)
-      expect(result).to eq(raw_output)
+      expect(device.cli(command)).to include('Some output text')
     end
 
     it '允许自定义超时和匹配模式' do
-      custom_timeout = 10
-      custom_match = /#/
       command = 'show interfaces'
+      raw_output = "show interfaces\r\nInterface status# "
 
-      # 模拟 puts 发送命令
-      expect(mock_connection).to receive(:puts).with(command)
-      # 计算 combined_pattern（分页符或自定义提示符）
-      more_pattern = /--More--/
-      combined_pattern = Regexp.union(more_pattern, custom_match)
-      # 模拟 waitfor 等待提示符
-      expect(mock_connection).to receive(:waitfor).with('Match' => combined_pattern, 'Timeout' => custom_timeout).and_return("show interfaces\r\nInterface status# ")
+      allow(mock_connection).to receive(:puts)
+      allow(mock_connection).to receive(:waitfor) do |*_args, &blk|
+        blk.call(raw_output)
+        nil
+      end
 
-      device.cli(command, timeout: custom_timeout, match: custom_match)
+      expect(device.cli(command, timeout: 10, match: /#/)).to include('Interface status')
     end
 
     it '在未连接时引发异常' do

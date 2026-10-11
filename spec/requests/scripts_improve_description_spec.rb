@@ -36,6 +36,8 @@ RSpec.describe '改进主线描述接口', type: :request do
 
   it '没带 LLM Key 时返回 400 与可读文案（不是 500）' do
     sign_in_user
+    # 隔离本机 config/qingxun.yml：显式让配置里也没有 Key
+    allow(QingxunConfig).to receive(:llm_api_key).and_return(nil)
 
     post '/scripts/improve_description', params: payload, as: :json
 

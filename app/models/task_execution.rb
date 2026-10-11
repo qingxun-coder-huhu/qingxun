@@ -5,10 +5,12 @@
 # 一个任务会把若干脚本依次下发到若干设备，每条组合产出一行记录，
 # 携带状态、收集到的日志与脚本返回的结构化结果（ScriptResult）。
 class TaskExecution < ApplicationRecord
-  STATUSES = %w[pending running completed failed].freeze
+  # 采用客户端执行器的脚本状态词表（四态：completed/partial/failed/error）
+  STATUSES = %w[pending running completed partial failed error].freeze
 
   belongs_to :task
   belongs_to :script
+  belongs_to :task_run, optional: true
   belongs_to :network_element, primary_key: :id, foreign_key: :network_element_id
 
   validates :status, inclusion: { in: STATUSES }
@@ -21,6 +23,7 @@ class TaskExecution < ApplicationRecord
     (duration_ms / 1000.0).round(2)
   end
 
+  # 只有"全部检查点通过"才算成功
   def success?
     status == 'completed'
   end

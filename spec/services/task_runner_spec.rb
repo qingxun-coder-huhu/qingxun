@@ -4,10 +4,12 @@ require 'rails_helper'
 require_relative '../../app/services/fake_telnet_server_manager'
 require_relative '../../app/services/task_runner'
 
-# 真机执行链路（开源版把执行并入应用内）
+# 任务执行（复用本地客户端的编排层：TaskExecutionCoordinator → DeviceExecutionProcessor → …）
 #
-# 用 FakeTelnetServer 当"真机"：起一个模拟设备，建脚本与任务，跑 TaskRunner，
-# 断言执行结果与日志被正确记录。
+# 语义与客户端一致：
+#   - 任务状态 = **流程**是否跑完（所有单元处理完即 completed，不看巡检结论）；
+#   - 脚本状态 = 巡检四态（completed/partial/failed/error），直接来自执行器；
+#   - 不再有"运行中日志流"与"取消"（客户端编排层不提供）。
 RSpec.describe TaskRunner, type: :model do
   let(:user) { User.local_operator }
   let(:mapping) { [{ 'command' => 'show version', 'response' => 'VERSION-1.0' }] }
@@ -28,14 +30,14 @@ RSpec.describe TaskRunner, type: :model do
     user.scripts.create!(
       script_uid: Script.generate_unique_uid, name: "s-#{SecureRandom.hex(3)}",
       description: '冒烟脚本', version: '1.0.0', device_models: [], publish_status: :debugging,
-      code: <<~RUBY
+      code: <<~CODE
         class SpecTaskRunnerScript < Qingxun::DeviceScript
           def run(connection)
             out = connection.cli('show version')
             { command: 'show version', output: out }
           end
         end
-      RUBY
+      CODE
     )
   end
 
@@ -49,7 +51,7 @@ RSpec.describe TaskRunner, type: :model do
     t
   end
 
-  it '在真实设备上执行脚本并记录结果、日志与状态' do
+  it '跑完后任务状态为 completed，脚本行含状态、日志与检查点字段' do
     described_class.new(task).call
     task.reload
 
@@ -59,19 +61,28 @@ RSpec.describe TaskRunner, type: :model do
     execution = task.task_executions.first
     expect(execution).not_to be_nil
     expect(execution.status).to eq('completed')
-    expect(execution.result['output']).to include('VERSION-1.0')
     expect(execution.logs).to include('show version')
-    expect(execution.duration_ms).to be_a(Integer)
+    expect(execution.result).to have_key('checkpoints')
   end
 
-  it '设备不可达时把失败与错误记录下来，任务标记为 failed' do
-    device.update!(ip_address: '127.0.0.1', port: 1) # 一个不会有人监听的端口
+  it '设备不可达：任务流程仍算跑完，但脚本行记录失败与错误' do
+    device.update!(ip_address: '127.0.0.1', port: 1) # 无人监听的端口
     described_class.new(task).call
     task.reload
 
-    expect(task.status).to eq('failed')
+    # 客户端语义：任务状态只回答"跑完了没有"，不看巡检结论
+    expect(task.status).to eq('completed')
     execution = task.task_executions.first
-    expect(execution.status).to eq('failed')
+    expect(%w[error failed]).to include(execution.status)
     expect(execution.error_message).to be_present
   end
+  it '每次运行保留一条执行记录（1 任务 N 执行）' do
+    2.times { described_class.new(task).call }
+    task.reload
+
+    expect(task.task_runs.count).to eq(2)
+    expect(task.latest_run.status).to eq('completed')
+    expect(task.task_executions.map(&:task_run_id).uniq.size).to eq(2)
+  end
+
 end

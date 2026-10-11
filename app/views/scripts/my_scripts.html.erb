@@ -1,328 +1,237 @@
-<div class="container-fluid">
-  <!-- 页头：副标题 + 统计。新建入口与搜索框放在下方「脚本列表」的表头 -->
-  <div class="row mb-3">
-    <div class="col">
-      <div class="d-flex align-items-center flex-wrap gap-3 small text-muted">
-        <span>管理您创建和调试的所有脚本</span>
-        <span>总计 <span class="fw-semibold text-body"><%= @total_count %></span> 个脚本</span>
-        <span><i class="bi bi-check-circle text-success me-1"></i>调试完成 <span class="fw-semibold text-body"><%= @debugged_count %></span></span>
-        <span><i class="bi bi-pencil text-warning me-1"></i>调试中 <span class="fw-semibold text-body"><%= @debugging_count %></span></span>
-        <%# 搜索时由脚本填入并显示，避免与上面的"总计"混淆 %>
-        <span class="text-body d-none" id="script-match-info">
-          <i class="bi bi-search me-1"></i>匹配 <span class="fw-semibold" data-match-count>0</span> 个
-        </span>
-      </div>
-    </div>
-  </div>
+<%# 我的脚本：Vue 3 + Element Plus，对齐本地客户端 scripts 页。
+     去掉云端「同步脚本」（OSS 无云端）；补「查看详情（代码）」与「执行（选设备）」。 %>
+<% content_for :head_late do %>
+  <link rel="stylesheet" href="/vendor/element-plus/index.css">
+<% end %>
 
-  <!-- 脚本列表 -->
-  <div class="row">
-    <div class="col">
-      <div class="card">
-        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-          <h6 class="mb-0 fw-medium text-muted text-nowrap">
-            <i class="bi bi-list-ul me-2"></i>脚本列表
-          </h6>
-          <div class="d-flex align-items-center gap-2">
-            <%# 前端过滤：一次性渲染全部脚本，输入即筛，回车不刷新。
-                过滤范围由每行的 data-search 决定（名称 + 描述 + 设备型号）。 %>
-            <div class="input-group input-group-sm <%= 'd-none' unless @scripts.any? %>" style="width: 15rem;">
-              <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-              <input type="search" id="script-search" class="form-control"
-                     placeholder="搜索名称、描述或设备型号" autocomplete="off">
-              <button class="btn btn-outline-secondary d-none" type="button" id="script-search-clear" title="清除">
-                <i class="bi bi-x-lg"></i>
-              </button>
-            </div>
-            <%= link_to scripts_path(new: true), class: 'btn btn-success btn-sm text-nowrap' do %>
-              <i class="bi bi-plus-lg me-1"></i>生成新脚本
-            <% end %>
-          </div>
+<style>
+  [v-cloak] { display: none; }
+  #my-scripts-app .el-card__header { border-bottom: none; }
+  #my-scripts-app .card-title { margin: 0; font-size: 16px; font-weight: 600; color: #303133; }
+  #my-scripts-app .stat-strip { display: flex; flex-wrap: wrap; gap: 12px 32px; }
+  #my-scripts-app .stat-inline { display: inline-flex; align-items: baseline; gap: 6px; }
+  #my-scripts-app .stat-inline__label { font-size: 13px; color: #909399; }
+  #my-scripts-app .stat-inline__value { font-size: 20px; font-weight: 600; color: #303133; }
+  .code-view {
+    white-space: pre; overflow: auto; max-height: 60vh; background: #1e1e1e; color: #d4d4d4;
+    padding: 12px; border-radius: 4px; font-family: monospace; font-size: 12.5px; margin: 0;
+  }
+  .pick-list { max-height: 320px; overflow: auto; }
+  .pick-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .pick-meta { color: #909399; font-size: 12px; }
+</style>
+
+<div class="container-fluid mb-5" id="my-scripts-app" v-cloak>
+  <el-card class="mb-3">
+    <template #header>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 class="card-title">我的脚本</h2>
+        <el-button type="primary" @click="goGenerate">生成新脚本</el-button>
+      </div>
+    </template>
+    <div class="stat-strip">
+      <span class="stat-inline"><span class="stat-inline__label">总计</span><span class="stat-inline__value">{{ stats.total }}</span></span>
+      <span class="stat-inline"><span class="stat-inline__label">调试完成</span><span class="stat-inline__value" style="color:#67c23a">{{ stats.debugged }}</span></span>
+      <span class="stat-inline"><span class="stat-inline__label">调试中</span><span class="stat-inline__value" style="color:#e6a23c">{{ stats.debugging }}</span></span>
+    </div>
+  </el-card>
+
+  <el-card>
+    <template #header>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <h2 class="card-title">脚本列表</h2>
+        <el-input v-model="keyword" placeholder="搜索脚本名称 / 描述" clearable style="width:260px"></el-input>
+      </div>
+    </template>
+
+    <el-table :data="filteredScripts" stripe style="width:100%" v-loading="loading">
+      <el-table-column prop="name" label="脚本名称" min-width="150" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip></el-table-column>
+      <el-table-column label="支持的设备型号" min-width="150" show-overflow-tooltip>
+        <template #default="scope">{{ (scope.row.device_models || []).join('、') || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="scope">
+          <el-tag :type="scope.row.publish_status === 'debugged' ? 'success' : 'warning'" size="small">
+            {{ scope.row.publish_status_text }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="usage_count" label="使用次数" width="90" align="center"></el-table-column>
+      <el-table-column label="更新时间" width="170">
+        <template #default="scope">{{ formatTime(scope.row.updated_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="240" fixed="right">
+        <template #default="scope">
+          <el-button type="primary" size="small" link @click="showDetail(scope.row)">查看详情</el-button>
+          <el-button type="success" size="small" link @click="openExecute(scope.row)">执行</el-button>
+          <el-button type="warning" size="small" link @click="editScript(scope.row)">编辑</el-button>
+          <el-button v-if="scope.row.publish_status !== 'debugged'" type="info" size="small" link @click="markDebugged(scope.row)">标记完成</el-button>
+          <el-button type="danger" size="small" link @click="removeScript(scope.row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-empty v-if="!loading && scripts.length === 0" description="还没有脚本，点击右上角「生成新脚本」"></el-empty>
+  </el-card>
+
+  <!-- 脚本详情 -->
+  <el-dialog v-model="detailVisible" :title="'脚本详情 - ' + (current ? current.name : '')" width="80%">
+    <div v-if="current">
+      <el-descriptions :column="2" border class="mb-3">
+        <el-descriptions-item label="脚本名称">{{ current.name }}</el-descriptions-item>
+        <el-descriptions-item label="调试状态">{{ current.publish_status_text }}</el-descriptions-item>
+        <el-descriptions-item label="版本">{{ current.version }}</el-descriptions-item>
+        <el-descriptions-item label="使用次数">{{ current.usage_count }}</el-descriptions-item>
+        <el-descriptions-item label="支持的设备型号">{{ (current.device_models || []).join('、') || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="更新时间">{{ formatTime(current.updated_at) }}</el-descriptions-item>
+        <el-descriptions-item label="描述" :span="2">{{ current.description }}</el-descriptions-item>
+      </el-descriptions>
+      <pre class="code-view">{{ current.code }}</pre>
+    </div>
+    <template #footer><el-button @click="detailVisible = false">关闭</el-button></template>
+  </el-dialog>
+
+  <!-- 执行（选设备） -->
+  <el-dialog v-model="executeVisible" :title="'执行脚本 - ' + (current ? current.name : '')" width="720px" :close-on-click-modal="false">
+    <div v-if="current && current.publish_status !== 'debugged'" class="mb-3">
+      <el-alert type="warning" :closable="false" show-icon title="该脚本尚未标记为「调试完成」，建议先在测试环境验证后再对生产设备执行。"></el-alert>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center" class="mb-2">
+      <span class="pick-meta">已选 {{ selectedDeviceIds.length }} / {{ devices.length }} 台设备</span>
+      <el-button-group>
+        <el-button size="small" @click="selectedDeviceIds = devices.map(d => d.id)">全选</el-button>
+        <el-button size="small" @click="selectedDeviceIds = []">全不选</el-button>
+      </el-button-group>
+    </div>
+    <el-input v-model="deviceFilter" placeholder="按名称 / IP 过滤" clearable class="mb-2"></el-input>
+    <div class="pick-list">
+      <el-checkbox-group v-model="selectedDeviceIds">
+        <div v-for="d in filteredDevices" :key="d.id" class="pick-row">
+          <el-checkbox :value="d.id">{{ d.name }} <span class="pick-meta">{{ d.ip_address }} · {{ d.device_model }}</span></el-checkbox>
         </div>
-        <div class="card-body p-0">
-          <% if @scripts.any? %>
-            <div class="table-responsive" id="script-table">
-              <table class="table table-hover mb-0 align-middle">
-                 <thead class="table-light">
-                   <tr>
-                     <th class="fw-semibold text-uppercase small text-muted">脚本名称</th>
-                     <th class="fw-semibold text-uppercase small text-muted">描述</th>
-                     <th class="fw-semibold text-uppercase small text-muted">支持的设备型号</th>
-                     <th class="fw-semibold text-uppercase small text-muted">状态</th>
-                     <th class="fw-semibold text-uppercase small text-muted">使用次数</th>
-                     <th class="fw-semibold text-uppercase small text-muted">更新时间</th>
-                     <th class="fw-semibold text-uppercase small text-muted">操作</th>
-                   </tr>
-                 </thead>
-                <tbody id="script-rows">
-                  <% @scripts.each do |script| %>
-                    <%# data-search 是这一行的可搜索文本：名称 + 描述 + 设备型号。
-                        服务端拼好并转小写，前端按子串匹配（查询词也转小写）。
-                        注意：ERB 注释里不能出现百分号加尖括号的标签写法，否则注释会被提前闭合、
-                        余下的文字会渲染成页面正文。 %>
-                    <tr class="border-bottom script-row"
-                        data-search="<%= [script.name, script.description, Array(script.device_models).join(' ')].compact.join(' ').downcase %>">
-                      <td>
-                        <div class="fw-medium"><%= script.name %></div>
-                      </td>
-                       <td>
-                         <span class="text-muted" title="<%= script.description %>">
-                           <%= truncate(script.description, length: 50) %>
-                         </span>
-                       </td>
-                       <td>
-                         <% if script.device_models.present? %>
-                           <div class="d-flex flex-wrap gap-1">
-                             <% script.device_models.each do |model| %>
-                               <span class="badge bg-light text-dark border"><%= model %></span>
-                             <% end %>
-                           </div>
-                         <% else %>
-                           <span class="text-muted">-</span>
-                         <% end %>
-                       </td>
-                        <td>
-                          <% if script.debugged? %>
-                            <span class="badge bg-success">
-                              <i class="bi bi-check-circle me-1"></i>调试完成
-                            </span>
-                          <% else %>
-                            <span class="badge bg-warning text-dark">
-                              <i class="bi bi-pencil me-1"></i>调试中
-                            </span>
-                          <% end %>
-                        </td>
-                      <td>
-                        <span class="fw-medium text-muted">
-                          <%= script.usage_count %>
-                        </span>
-                      </td>
-                      <td>
-                        <small class="text-muted">
-                          <%= script.updated_at.strftime('%Y-%m-%d %H:%M') %>
-                        </small>
-                      </td>
-                        <td>
-                          <div class="d-flex gap-1">
-                             <%= link_to scripts_path(script_uid: script.script_uid), class: 'btn btn-outline-primary btn-sm', title: '编辑' do %>
-                               <i class="bi bi-pencil-square"></i>
-                             <% end %>
-
-                            <button type="button"
-                                    class="btn btn-outline-danger btn-sm delete-script-btn"
-                                    title="删除"
-                                    data-script-id="<%= script.id %>"
-                                    data-script-name="<%= script.name %>">
-                              <i class="bi bi-trash3"></i>
-                            </button>
-
-                             <% if script.debugging? %>
-                               <button type="button"
-                                       class="btn btn-outline-success btn-sm debug-complete-btn"
-                                       title="标记为调试完成"
-                                       data-script-id="<%= script.id %>"
-                                       data-script-uid="<%= script.script_uid %>"
-                                       data-script-name="<%= script.name %>">
-                                 <i class="bi bi-check-circle"></i>
-                               </button>
-                             <% end %>
-                          </div>
-                        </td>
-                    </tr>
-                  <% end %>
-                </tbody>
-              </table>
-            </div>
-            <%# 前端过滤把行全部隐藏时显示；与"暂无脚本"是两回事，由脚本切换 %>
-            <div class="text-center py-6 d-none" id="script-no-match">
-              <div class="display-4 text-muted opacity-25 mb-3">
-                <i class="bi bi-search"></i>
-              </div>
-              <h5 class="text-muted fw-light">没有匹配的脚本</h5>
-              <p class="text-muted small mb-4">没有名称、描述或设备型号包含当前关键词的脚本</p>
-              <button type="button" class="btn btn-outline-secondary" id="script-no-match-clear">
-                <i class="bi bi-x-circle me-1"></i>清除搜索
-              </button>
-            </div>
-          <% else %>
-            <div class="text-center py-6">
-              <div class="display-4 text-muted opacity-25 mb-3">
-                <i class="bi bi-code-slash"></i>
-              </div>
-              <h5 class="text-muted fw-light">暂无脚本</h5>
-              <p class="text-muted small mb-4">您还没有创建任何脚本</p>
-              <%= link_to scripts_path, class: 'btn btn-success' do %>
-                <i class="bi bi-plus-lg me-1"></i>生成第一个脚本
-              <% end %>
-            </div>
-          <% end %>
-        </div>
-      </div>
+      </el-checkbox-group>
+      <el-empty v-if="filteredDevices.length === 0" description="没有匹配的设备"></el-empty>
     </div>
-  </div>
+    <template #footer>
+      <el-button @click="executeVisible = false">取消</el-button>
+      <el-button type="primary" :disabled="selectedDeviceIds.length === 0" :loading="executing" @click="confirmExecute">
+        执行 ({{ selectedDeviceIds.length }} 台设备)
+      </el-button>
+    </template>
+  </el-dialog>
 </div>
 
-<!-- 删除确认模态框 -->
-<div class="modal fade" id="deleteScriptModal" tabindex="-1" aria-labelledby="deleteScriptModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header bg-danger text-white">
-        <h5 class="modal-title" id="deleteScriptModalLabel">
-          <i class="bi bi-exclamation-triangle me-2"></i>确认删除
-        </h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        <p class="mb-0">您确定要删除脚本 <strong id="deleteScriptName"></strong> 吗？</p>
-        <p class="text-danger mt-2 mb-0 small">
-          <i class="bi bi-exclamation-circle me-1"></i>此操作不可撤销，删除后所有相关数据将永久丢失。
-        </p>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
-          <i class="bi bi-x-circle me-1"></i>取消
-        </button>
-        <form id="deleteScriptForm" method="post" action="">
-          <input type="hidden" name="_method" value="delete">
-          <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
-          <button type="submit" class="btn btn-danger">
-            <i class="bi bi-trash3 me-1"></i>确认删除
-          </button>
-        </form>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- 调试完成确认模态框 -->
-<div class="modal fade" id="debugCompleteModal" tabindex="-1" aria-labelledby="debugCompleteModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header bg-success text-white">
-        <h5 class="modal-title" id="debugCompleteModalLabel">
-          <i class="bi bi-check-circle me-2"></i>确认标记完成
-        </h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        <p class="mb-0">您确定要将脚本 <strong id="debugCompleteScriptName"></strong> 标记为调试完成吗？</p>
-        <p class="text-success mt-2 mb-0 small">
-          <i class="bi bi-info-circle me-1"></i>标记完成后，脚本可以被任务执行。
-        </p>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
-          <i class="bi bi-x-circle me-1"></i>取消
-        </button>
-        <form id="debugCompleteForm" method="post" action="">
-          <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
-          <input type="hidden" name="script_uid" id="debugCompleteScriptUid">
-          <button type="submit" class="btn btn-success">
-            <i class="bi bi-check-circle me-1"></i>确认标记
-          </button>
-        </form>
-      </div>
-    </div>
-  </div>
-</div>
-
+<script src="/vendor/javascripts/vue.global.prod.js"></script>
+<script src="/vendor/element-plus/index.full.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  // 搜索过滤
-  //
-  // 前端过滤而非服务端查询：本页一次性渲染全部脚本（无分页），所以前端就能覆盖
-  // 全部数据；好处是输入即筛、回车不刷新，并且能同时匹配名称/描述/设备型号
-  // （三个字段合在每行的 data-search 里，见上方的 tr）。
-  //
-  // 隐性知识：data-search 在服务端已转小写，这里查询词也要转小写，否则英文搜不到。
-  (function initScriptSearch() {
-    const input = document.getElementById('script-search');
-    if (!input) { return; }
+  (function () {
+    const { createApp, ref, reactive, computed, onMounted } = Vue;
+    const csrf = () => document.querySelector('meta[name="csrf-token"]').content;
 
-    const clearBtn = document.getElementById('script-search-clear');
-    const rows = Array.from(document.querySelectorAll('.script-row'));
-    const table = document.getElementById('script-table');
-    const noMatch = document.getElementById('script-no-match');
-    const matchInfo = document.getElementById('script-match-info');
+    createApp({
+      setup() {
+        const scripts = ref([]);
+        const stats = reactive({ total: 0, debugged: 0, debugging: 0 });
+        const loading = ref(true);
+        const keyword = ref('');
 
-    function applyFilter() {
-      const query = input.value.trim().toLowerCase();
-      let shown = 0;
+        const current = ref(null);
+        const detailVisible = ref(false);
+        const executeVisible = ref(false);
+        const executing = ref(false);
+        const devices = ref([]);
+        const selectedDeviceIds = ref([]);
+        const deviceFilter = ref('');
 
-      rows.forEach(function (row) {
-        const hit = query === '' || (row.dataset.search || '').indexOf(query) >= 0;
-        row.classList.toggle('d-none', !hit);
-        if (hit) { shown += 1; }
-      });
+        const filteredScripts = computed(() => {
+          const k = keyword.value.trim().toLowerCase();
+          if (!k) return scripts.value;
+          return scripts.value.filter((s) => (s.name + ' ' + s.description).toLowerCase().includes(k));
+        });
+        const filteredDevices = computed(() => {
+          const k = deviceFilter.value.trim().toLowerCase();
+          if (!k) return devices.value;
+          return devices.value.filter((d) => (d.name + ' ' + d.ip_address).toLowerCase().includes(k));
+        });
 
-      const searching = query !== '';
-      const none = searching && shown === 0;
+        const load = async () => {
+          loading.value = true;
+          try {
+            const response = await fetch('/scripts/my_scripts.json', { headers: { 'Accept': 'application/json' } });
+            const data = await response.json();
+            scripts.value = data.scripts || [];
+            Object.assign(stats, data.stats || {});
+          } finally { loading.value = false; }
+        };
 
-      if (clearBtn) { clearBtn.classList.toggle('d-none', !searching); }
-      if (table) { table.classList.toggle('d-none', none); }
-      if (noMatch) { noMatch.classList.toggle('d-none', !none); }
+        const formatTime = (value) => {
+          if (!value) return '';
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return value;
+          const p = (n) => String(n).padStart(2, '0');
+          return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+        };
 
-      if (matchInfo) {
-        matchInfo.classList.toggle('d-none', !searching);
-        const counter = matchInfo.querySelector('[data-match-count]');
-        if (counter) { counter.textContent = shown; }
+        const goGenerate = () => { window.location.href = '/scripts?new=true'; };
+        const editScript = (row) => { window.location.href = '/scripts?script_uid=' + encodeURIComponent(row.script_uid); };
+
+        const showDetail = (row) => { current.value = row; detailVisible.value = true; };
+
+        const openExecute = async (row) => {
+          current.value = row;
+          selectedDeviceIds.value = [];
+          deviceFilter.value = '';
+          executeVisible.value = true;
+          if (devices.value.length === 0) {
+            const response = await fetch('/network_elements.json', { headers: { 'Accept': 'application/json' } });
+            devices.value = await response.json();
+          }
+        };
+        const confirmExecute = async () => {
+          executing.value = true;
+          try {
+            const response = await fetch('/network_elements/execute_batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf(), 'Accept': 'application/json' },
+              body: JSON.stringify({ device_ids: selectedDeviceIds.value, script_ids: [current.value.id] })
+            });
+            const data = await response.json();
+            if (data.success) { window.location.href = data.path; }
+            else { ElementPlus.ElMessage.error(data.error || '执行失败'); }
+          } finally { executing.value = false; }
+        };
+
+        const removeScript = async (row) => {
+          if (!window.confirm('确定删除脚本「' + row.name + '」吗？')) return;
+          const response = await fetch('/scripts/' + row.id, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': csrf(), 'Accept': 'application/json' }
+          });
+          if ((await response.json()).success) { await load(); }
+        };
+
+        const markDebugged = async (row) => {
+          const response = await fetch('/scripts/debug_complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf(), 'Accept': 'application/json' },
+            body: JSON.stringify({
+              script_uid: row.script_uid, script_name: row.name, script_description: row.description,
+              code: row.code, device_models: (row.device_models || []).join(','),
+              command_mapping: JSON.stringify(row.command_mapping || [])
+            })
+          });
+          const data = await response.json();
+          if (data.success) { ElementPlus.ElMessage.success('已标记为调试完成'); await load(); }
+          else { ElementPlus.ElMessage.error(data.error || '标记失败（脚本需先填写「支持的设备型号」）'); }
+        };
+
+        onMounted(load);
+        return {
+          scripts, stats, loading, keyword, filteredScripts, current, detailVisible,
+          executeVisible, executing, devices, selectedDeviceIds, deviceFilter, filteredDevices,
+          formatTime, goGenerate, editScript, showDetail, openExecute, confirmExecute, removeScript, markDebugged
+        };
       }
-    }
-
-    function clearFilter() {
-      input.value = '';
-      applyFilter();
-      input.focus();
-    }
-
-    input.addEventListener('input', applyFilter);
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && input.value !== '') { clearFilter(); }
-    });
-    if (clearBtn) { clearBtn.addEventListener('click', clearFilter); }
-
-    const noMatchClear = document.getElementById('script-no-match-clear');
-    if (noMatchClear) { noMatchClear.addEventListener('click', clearFilter); }
+    }).use(ElementPlus).mount('#my-scripts-app');
   })();
-
-  // 删除功能
-  const deleteModal = new bootstrap.Modal(document.getElementById('deleteScriptModal'));
-  const deleteScriptName = document.getElementById('deleteScriptName');
-  const deleteScriptForm = document.getElementById('deleteScriptForm');
-
-  // 绑定所有删除按钮的点击事件
-  document.querySelectorAll('.delete-script-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const scriptId = this.getAttribute('data-script-id');
-      const scriptName = this.getAttribute('data-script-name');
-
-      // 设置模态框内容
-      deleteScriptName.textContent = scriptName;
-      deleteScriptForm.action = '/scripts/' + scriptId;
-
-      // 显示模态框
-      deleteModal.show();
-    });
-  });
-
-  // 调试完成功能
-  const debugCompleteModal = new bootstrap.Modal(document.getElementById('debugCompleteModal'));
-  const debugCompleteScriptName = document.getElementById('debugCompleteScriptName');
-  const debugCompleteForm = document.getElementById('debugCompleteForm');
-
-  // 绑定所有调试完成按钮的点击事件
-  document.querySelectorAll('.debug-complete-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const scriptName = this.getAttribute('data-script-name');
-
-      // 设置模态框内容
-      debugCompleteScriptName.textContent = scriptName;
-      document.getElementById('debugCompleteScriptUid').value = this.getAttribute('data-script-uid');
-      debugCompleteForm.action = '/scripts/debug_complete';
-
-      // 显示模态框
-      debugCompleteModal.show();
-    });
-  });
-});
 </script>

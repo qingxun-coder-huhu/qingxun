@@ -32,6 +32,14 @@ class Task < ApplicationRecord
 
   # 执行结果（每台设备 × 每个脚本一条）
   has_many :task_executions, dependent: :destroy
+
+  # 执行历史：一个任务可有多次执行（对齐客户端 LocalTask 1→N LocalTaskExecution）
+  has_many :task_runs, dependent: :destroy
+
+  # 最新一次执行
+  def latest_run
+    task_runs.recent_first.first
+  end
   
   # 序列化JSON字段（注释掉，因为JSON列原生支持序列化）
   # serialize :execution_params, JSON

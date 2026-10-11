@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_10_12_000001) do
+ActiveRecord::Schema[7.1].define(version: 2026_10_12_000003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -31,6 +31,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_10_12_000001) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.text "generated_code"
+    t.jsonb "history", default: [], null: false
     t.index ["user_id"], name: "index_custom_integrations_on_user_id"
   end
 
@@ -123,10 +124,12 @@ ActiveRecord::Schema[7.1].define(version: 2026_10_12_000001) do
     t.datetime "finished_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "task_run_id"
     t.index ["network_element_id"], name: "index_task_executions_on_network_element_id"
     t.index ["script_id"], name: "index_task_executions_on_script_id"
-    t.index ["task_id", "network_element_id", "script_id"], name: "index_task_executions_on_task_device_script", unique: true
     t.index ["task_id"], name: "index_task_executions_on_task_id"
+    t.index ["task_run_id", "network_element_id", "script_id"], name: "index_task_executions_on_run_device_script", unique: true
+    t.index ["task_run_id"], name: "index_task_executions_on_task_run_id"
   end
 
   create_table "task_network_elements", force: :cascade do |t|
@@ -151,6 +154,19 @@ ActiveRecord::Schema[7.1].define(version: 2026_10_12_000001) do
     t.index ["started_at"], name: "index_task_network_elements_on_started_at"
     t.index ["status"], name: "index_task_network_elements_on_status"
     t.index ["task_id"], name: "index_task_network_elements_on_task_id"
+  end
+
+  create_table "task_runs", force: :cascade do |t|
+    t.bigint "task_id", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "progress", default: 0, null: false
+    t.jsonb "result", default: {}
+    t.text "error_message"
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["task_id"], name: "index_task_runs_on_task_id"
   end
 
   create_table "task_scripts", force: :cascade do |t|
@@ -246,8 +262,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_10_12_000001) do
   add_foreign_key "scripts", "scripts", column: "parent_script_id"
   add_foreign_key "scripts", "users"
   add_foreign_key "task_executions", "scripts"
+  add_foreign_key "task_executions", "task_runs"
   add_foreign_key "task_executions", "tasks"
   add_foreign_key "task_network_elements", "tasks"
+  add_foreign_key "task_runs", "tasks"
   add_foreign_key "task_scripts", "scripts"
   add_foreign_key "task_scripts", "tasks"
   add_foreign_key "tasks", "users"

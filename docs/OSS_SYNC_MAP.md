@@ -106,10 +106,48 @@ lib/telnet_device.rb
 
 ---
 
+## 复用自本地客户端（`net_cat_client`）的类
+
+以下类**从客户端搬入**开源版，后续同步时应以客户端为准（尽量保持逐字一致，仅列出的适配除外）：
+
+| 开源版路径 | 客户端来源 | 适配 |
+| --- | --- | --- |
+| `lib/thread_pool_executor.rb` | 同名 | 无（原样） |
+| `lib/telnet_device.rb` | 同名（605 行版） | 无（整体替换了云端旧版） |
+| `lib/net_ssh_telnet_flush.rb` | 同名 | 无 |
+| `lib/file_path_utils.rb` | 同名 | 无 |
+| `lib/device_login_handler.rb` | 同名 | 仅 require 路径 |
+| `lib/script_executor.rb` | 同名 | ① 执行改走 `Qingxun::Sandbox`（保留沙箱）；② 自定义集成改由框架按 `script_user` 加载（不再 `eval`） |
+| `lib/task_execution_coordinator.rb` | 同名 | 去掉 `Singleton`；线程池大小可传入 |
+| `lib/device_execution_processor.rb` | 同名 | 无 |
+| `lib/task_finalizer.rb` | 同名 | 无 |
+| `lib/task_execution_manager.rb` | 同名 | 无 |
+| `lib/task_directory_preparer.rb` | 同名 | 仅 require 路径 |
+| `app/services/report_generator.rb` / `report_html_generator.rb` | `services/report_generator.rb`、`routes/report_routes.rb` 的 HTML 生成器 | 数据源改为本应用的 Task/TaskRun/TaskExecution |
+| `public/js/expandable-text.js` | 同名 | 无（原样） |
+| `public/js/script-log.js` | 客户端 `views/task_detail.erb` / `views/task_report.erb` 的**内联日志逻辑** | 客户端未把它抽成 JS 模块，这里抽成公共模块：`escapeLogHtml`/`renderLog`/`createLogRefresher`，任务详情页与报告页共用 |
+| `public/js/script-result.js` | 客户端两个页面**内联的检查点/结论/状态渲染** | 抽成公共模块：`checkpointsOf`/`failedCheckpointsOf`/`passedCount`/`failedCount`/`formatCheckpoint`/`checkpointClass`/`formatConclusion`/`getScriptStatusType`/`scriptStatusText` 等，两页共用 |
+
+**开源版专有的薄适配层**（不含业务逻辑，仅做模型映射；上游没有对应物）：
+
+- `app/services/task_execution_adapter.rb`：把 `Task` 映射成客户端编排层要的 `execution` 接口
+  （`get_execution_units` / `update_*_status!` / `complete_from_memory!` / 目录与状态文件），
+  并把状态落回 `TaskExecution` / `task_network_elements` / `TaskRun` / `Task`。
+- `app/services/task_runner.rb`：建 `TaskRun` → `TaskExecutionCoordinator.new(pool_size:).submit_task` → 等结束停池。
+- `app/services/device_runner.rb`：单设备单脚本的薄封装（`DeviceLoginHandler` + `ScriptExecutor`）。
+
+**由此对齐的语义**（与客户端一致，替换了开源版早期自写实现的行为）：
+
+- 脚本状态词表 = 客户端四态 `completed/partial/failed/error`；`TaskExecution.status` 直接存它，
+  报告/状态页读 `exec.status` 与 `result['conclusion']`。
+- 任务状态 = **流程**是否跑完（所有单元处理完即 `completed`，不看巡检结论）。
+- 引入 `TaskRun`：1 任务 N 次执行（对齐客户端 `LocalTask` 1→N `LocalTaskExecution`、`latest_run` ≈ `latest_execution`）。
+- **不支持**：运行中日志逐秒落库、执行中取消（客户端编排层都没有）。
+
+---
+
 ## 已知待办 / 注意
 
-- `script_status` 语义：`TaskExecution` 用 `pending/running/completed/failed`；
-  `TaskScript#status` 用 `pending/running/success/failed/skipped`。两者不同，勿混用。
-- 上游若调整 `Qingxun::DeviceScript` 的沙箱能力，需同时评估 `DeviceRunner`（真机）与
-  `DebugSession`（模拟）两处调用点。
+- 上游若调整 `Qingxun::DeviceScript` 的沙箱能力，需同时评估 `ScriptExecutor`（真机，走 Sandbox）
+  与 `DebugSession`（模拟）两处调用点。
 - RSpec：开源版仍在把上游用例迁移为社区版口径（登录/识别码相关用例已移除）。

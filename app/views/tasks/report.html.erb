@@ -1,0 +1,323 @@
+<%# 任务报告页：Vue 3 + Element Plus，结构对齐本地客户端 task_report。
+     数据来自 GET /tasks/:id/report_data（ReportGenerator），导出走 /tasks/:id/export_report。 %>
+<% content_for :head_late do %>
+  <link rel="stylesheet" href="/vendor/element-plus/index.css">
+<% end %>
+
+<style>
+  [v-cloak] { display: none; }
+  #task-report-app .el-card__header { border-bottom: none; }
+  #task-report-app .report-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  #task-report-app .report-head__name { margin: 0; font-size: 18px; font-weight: 600; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #task-report-app .report-head__meta { display: flex; align-items: center; gap: 12px; color: #909399; font-size: 13px; }
+
+  .stat-strip { display: flex; flex-wrap: wrap; gap: 12px 32px; }
+  .stat-inline { display: inline-flex; align-items: baseline; gap: 6px; }
+  .stat-inline__label { font-size: 13px; color: #909399; }
+  .stat-inline__value { font-size: 20px; font-weight: 600; color: #303133; }
+
+  .checkpoint-list { line-height: 1.6; }
+  .checkpoint-summary { font-size: 14px; font-weight: 500; margin-bottom: 2px; }
+  .checkpoint-item { font-size: 14px; overflow-wrap: anywhere; }
+  .checkpoint-list .is-passed { color: #67c23a; }
+  .checkpoint-list .is-failed { color: #f56c6c; }
+  .checkpoint-list .is-unknown { color: #909399; }
+  .expandable-text__body { line-height: 1.6; font-size: 14px; }
+  .expandable-text__body.is-clamped { max-height: calc(1.6em * var(--clamp-lines, 4)); overflow: hidden; }
+  .expandable-text__toggle { display: inline-block; margin-top: 2px; font-size: 12px; color: #409eff; cursor: pointer; user-select: none; }
+
+  .split-view { display: flex; gap: 16px; min-height: 320px; }
+  .split-left { width: 260px; flex-shrink: 0; border-right: 1px solid #ebeef5; padding-right: 12px; overflow: auto; max-height: 60vh; }
+  .split-right { flex: 1; min-width: 0; }
+  .device-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 6px; }
+  .device-item:hover { background: #f5f7fa; }
+  .device-item--active { background: #ecf5ff; }
+  .device-item__header { display: flex; align-items: center; gap: 8px; }
+  .device-status-icon.completed { color: #67c23a; }
+  .device-status-icon.partial { color: #e6a23c; }
+  .device-status-icon.failed { color: #f56c6c; }
+  .device-status-icon.pending, .device-status-icon.running { color: #909399; }
+  .device-name { font-weight: 500; color: #303133; }
+  .device-item__meta { display: flex; justify-content: space-between; color: #909399; font-size: 12px; margin-top: 4px; }
+
+  .script-log-view {
+    white-space: normal; line-height: 1.6; overflow: auto; max-height: 65vh; min-height: 24vh;
+    background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 4px;
+    font-family: monospace; font-size: 13px; margin: 0;
+  }
+  .u-error { color: #f56c6c; }
+  .u-ml-8 { margin-left: 8px; }
+  .u-mb-12 { margin-bottom: 12px; }
+  .u-mb-16 { margin-bottom: 16px; }
+  .u-mt-16 { margin-top: 16px; }
+</style>
+
+<div class="container-fluid mb-5" id="task-report-app" v-cloak>
+  <div class="d-flex justify-content-end gap-2 mb-3">
+    <el-dropdown @command="exportReport">
+      <el-button type="primary">导出报告 <i class="bi bi-chevron-down"></i></el-button>
+      <template #dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item command="json">导出 JSON</el-dropdown-item>
+          <el-dropdown-item command="html">导出 HTML</el-dropdown-item>
+          <el-dropdown-item command="pdf">导出 PDF</el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
+    <el-button @click="goBack">返回详情</el-button>
+  </div>
+
+  <div v-loading="loading">
+    <template v-if="report">
+      <el-card class="mb-3">
+        <template #header>
+          <div class="report-head">
+            <h2 class="report-head__name" :title="report.task.name">{{ report.task.name }}</h2>
+            <div class="report-head__meta">
+              <el-tag :type="getStatusType(report.task.status)" size="small">{{ report.task.status_text }}</el-tag>
+              <span v-if="report.task.started_at">开始: {{ formatTime(report.task.started_at) }}</span>
+              <span v-if="report.task.completed_at">完成: {{ formatTime(report.task.completed_at) }}</span>
+              <span v-if="report.task.duration">耗时: {{ report.task.duration }}</span>
+            </div>
+          </div>
+        </template>
+        <div class="stat-strip">
+          <span class="stat-inline"><span class="stat-inline__label">总设备数</span><span class="stat-inline__value">{{ report.statistics.total_devices }}</span></span>
+          <span class="stat-inline"><span class="stat-inline__label">全部成功</span><span class="stat-inline__value" style="color:#67c23a">{{ report.statistics.all_success_devices }}</span></span>
+          <span class="stat-inline"><span class="stat-inline__label">部分成功</span><span class="stat-inline__value" style="color:#e6a23c">{{ report.statistics.partial_success_devices }}</span></span>
+          <span class="stat-inline"><span class="stat-inline__label">全部失败</span><span class="stat-inline__value u-error">{{ report.statistics.all_failed_devices }}</span></span>
+          <span class="stat-inline"><span class="stat-inline__label">总脚本数</span><span class="stat-inline__value">{{ report.statistics.total_scripts }}</span></span>
+          <span class="stat-inline"><span class="stat-inline__label">脚本成功率</span><span class="stat-inline__value" style="color:#409eff">{{ report.statistics.script_success_rate }}</span></span>
+        </div>
+      </el-card>
+
+      <el-card class="mb-3">
+        <div class="u-mb-16" style="display:flex;justify-content:space-between;align-items:center">
+          <h2 style="margin:0;font-size:15px">执行详情</h2>
+          <el-button-group>
+            <el-button :type="viewMode === 'flat' ? 'primary' : ''" size="small" @click="setViewMode('flat')">扁平表格</el-button>
+            <el-button :type="viewMode === 'split' ? 'primary' : ''" size="small" @click="setViewMode('split')">左右分栏</el-button>
+          </el-button-group>
+        </div>
+
+        <div v-show="viewMode === 'flat'">
+          <el-table :data="report.flat_scripts" stripe style="width:100%">
+            <el-table-column label="设备IP" width="120" fixed="left">
+              <template #default="scope"><strong>{{ scope.row.device_ip }}</strong></template>
+            </el-table-column>
+            <el-table-column prop="device_name" label="设备名称" width="120" show-overflow-tooltip></el-table-column>
+            <el-table-column prop="device_model" label="型号" width="110" show-overflow-tooltip></el-table-column>
+            <el-table-column prop="name" label="脚本名称" min-width="150" show-overflow-tooltip></el-table-column>
+            <el-table-column label="状态" width="92">
+              <template #default="scope"><el-tag :type="getScriptStatusType(scope.row.status)" size="small">{{ scope.row.status_text }}</el-tag></template>
+            </el-table-column>
+            <el-table-column prop="duration" label="耗时" width="90"></el-table-column>
+            <el-table-column label="结论摘要" min-width="200">
+              <template #default="scope">
+                <div v-if="scope.row.status === 'partial' && failedCheckpointsOf(scope.row).length" class="checkpoint-list">
+                  <expandable-text>
+                    <div v-for="(cp, i) in failedCheckpointsOf(scope.row)" :key="i" class="checkpoint-item is-failed">{{ formatCheckpoint(cp) }}</div>
+                  </expandable-text>
+                </div>
+                <span v-else :class="{ 'u-error': ['failed', 'error'].includes(scope.row.status) }">{{ formatConclusion(scope.row) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="检查点结论" min-width="220">
+              <template #default="scope">
+                <div v-if="scope.row.checkpoints && scope.row.checkpoints.length" class="checkpoint-list">
+                  <div class="checkpoint-summary" :class="scope.row.checkpoints_failed > 0 ? 'is-failed' : 'is-passed'">
+                    {{ scope.row.checkpoints_passed }}/{{ scope.row.checkpoints_total }} 通过
+                  </div>
+                  <expandable-text>
+                    <div v-for="(cp, i) in scope.row.checkpoints" :key="i" class="checkpoint-item" :class="checkpointClass(cp)">{{ formatCheckpoint(cp) }}</div>
+                  </expandable-text>
+                </div>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="80" fixed="right">
+              <template #default="scope"><el-button type="primary" size="small" link @click="showScriptLog(scope.row)">日志</el-button></template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div v-show="viewMode === 'split'" class="split-view">
+          <div class="split-left">
+            <div v-for="device in report.devices" :key="device.id" class="device-item"
+                 :class="{ 'device-item--active': selectedDeviceId === device.id }" @click="selectDevice(device)">
+              <div class="device-item__header">
+                <span class="device-status-icon" :class="device.status">{{ getDeviceStatusIcon(device.status) }}</span>
+                <span class="device-name">{{ device.name }}</span>
+              </div>
+              <div class="device-item__meta">
+                <span>{{ device.device_ip }}</span>
+                <span>{{ device.scripts_success }}/{{ device.scripts_count }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="split-right">
+            <template v-if="selectedDevice">
+              <div class="u-mb-16">
+                <h3 style="margin:0;font-size:15px">{{ selectedDevice.name }}</h3>
+                <div style="color:#909399;font-size:13px;margin-top:4px">
+                  {{ selectedDevice.device_ip }} · {{ selectedDevice.device_model || '未知型号' }}
+                  <el-tag class="u-ml-8" :type="getDeviceStatusType(selectedDevice.status)" size="small">{{ selectedDevice.status_text }}</el-tag>
+                  <span class="u-ml-8" v-if="selectedDevice.duration">耗时: {{ selectedDevice.duration }}</span>
+                </div>
+              </div>
+              <el-table :data="selectedDevice.scripts" stripe style="width:100%">
+                <el-table-column prop="name" label="脚本名称" min-width="180" show-overflow-tooltip></el-table-column>
+                <el-table-column label="状态" width="100">
+                  <template #default="scope"><el-tag :type="getScriptStatusType(scope.row.status)" size="small">{{ scope.row.status_text }}</el-tag></template>
+                </el-table-column>
+                <el-table-column prop="duration" label="耗时" width="90"></el-table-column>
+                <el-table-column label="结论摘要" min-width="220">
+                  <template #default="scope">
+                    <div v-if="scope.row.status === 'partial' && failedCheckpointsOf(scope.row).length" class="checkpoint-list">
+                      <expandable-text>
+                        <div v-for="(cp, i) in failedCheckpointsOf(scope.row)" :key="i" class="checkpoint-item is-failed">{{ formatCheckpoint(cp) }}</div>
+                      </expandable-text>
+                    </div>
+                    <span v-else :class="{ 'u-error': ['failed', 'error'].includes(scope.row.status) }">{{ formatConclusion(scope.row) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="检查点结论" min-width="220">
+                  <template #default="scope">
+                    <div v-if="scope.row.checkpoints && scope.row.checkpoints.length" class="checkpoint-list">
+                      <div class="checkpoint-summary" :class="scope.row.checkpoints_failed > 0 ? 'is-failed' : 'is-passed'">
+                        {{ scope.row.checkpoints_passed }}/{{ scope.row.checkpoints_total }} 通过
+                      </div>
+                      <expandable-text>
+                        <div v-for="(cp, i) in scope.row.checkpoints" :key="i" class="checkpoint-item" :class="checkpointClass(cp)">{{ formatCheckpoint(cp) }}</div>
+                      </expandable-text>
+                    </div>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="80" fixed="right">
+                  <template #default="scope"><el-button type="primary" size="small" link @click="showScriptLog(scope.row)">日志</el-button></template>
+                </el-table-column>
+              </el-table>
+            </template>
+            <el-empty v-else description="请选择左侧设备查看详情"></el-empty>
+          </div>
+        </div>
+      </el-card>
+
+      <el-card v-if="report.errors && report.errors.length">
+        <template #header><h2 class="u-error" style="margin:0;font-size:15px">🔴 错误汇总</h2></template>
+        <el-collapse>
+          <el-collapse-item v-for="(error, index) in report.errors" :key="index">
+            <template #title>
+              <div style="display:flex;justify-content:space-between;align-items:center;width:100%;padding-right:16px">
+                <span class="u-error">{{ error.error.length > 80 ? error.error.substring(0, 80) + '...' : error.error }}</span>
+                <el-tag type="danger" size="small">{{ error.count }} 项</el-tag>
+              </div>
+            </template>
+            <div class="u-mb-12" style="color:#606266">影响的设备和脚本：</div>
+            <el-tag v-for="item in error.affected_devices" :key="item.script_id" style="margin:4px" size="small">
+              {{ item.device_name }} - {{ item.script_name }}
+            </el-tag>
+          </el-collapse-item>
+        </el-collapse>
+      </el-card>
+    </template>
+  </div>
+
+  <el-dialog v-model="logDialogVisible" :title="'脚本日志 - ' + (currentScript ? currentScript.name : '')" width="90%" top="4vh">
+    <div v-if="currentScript">
+      <div class="u-mb-16">
+        <el-tag :type="getScriptStatusType(currentScript.status)" size="small">{{ currentScript.status_text }}</el-tag>
+        <span class="u-ml-8" v-if="currentScript.duration">耗时: {{ currentScript.duration }}</span>
+      </div>
+      <div class="u-mb-16 u-error" v-if="currentScript.error"><strong>错误:</strong> {{ currentScript.error }}</div>
+      <div class="script-log-view" v-html="renderLog(currentScript.output)"></div>
+    </div>
+    <template #footer><el-button @click="logDialogVisible = false">关闭</el-button></template>
+  </el-dialog>
+</div>
+
+<script src="/vendor/javascripts/vue.global.prod.js"></script>
+<script src="/vendor/element-plus/index.full.js"></script>
+<script src="/js/expandable-text.js"></script>
+<script src="/js/script-result.js"></script>
+<script src="/js/script-log.js"></script>
+<script>
+  (function () {
+    const { createApp, ref, computed, onMounted } = Vue;
+    const taskId = <%= @task.id %>;
+
+    const app = createApp({
+      setup() {
+        const report = ref(null);
+        const loading = ref(true);
+        // 视图模式像客户端一样记住：localStorage['report_view_mode']
+        const viewMode = ref(localStorage.getItem('report_view_mode') || 'flat');
+        const selectedDeviceId = ref(null);
+        const logDialogVisible = ref(false);
+        const currentScript = ref(null);
+
+        const selectedDevice = computed(() => {
+          if (!report.value || !selectedDeviceId.value) return null;
+          return (report.value.devices || []).find((d) => d.id === selectedDeviceId.value) || null;
+        });
+        const setViewMode = (mode) => {
+          viewMode.value = mode;
+          try { localStorage.setItem('report_view_mode', mode); } catch (e) { /* 忽略 */ }
+          if (mode === 'split' && !selectedDeviceId.value && report.value && (report.value.devices || []).length) {
+            selectedDeviceId.value = report.value.devices[0].id;
+          }
+        };
+        const selectDevice = (device) => { selectedDeviceId.value = device.id; };
+        const showScriptLog = (script) => { currentScript.value = script; logDialogVisible.value = true; };
+
+        const formatTime = (value) => {
+          if (!value) return '';
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return value;
+          const p = (n) => String(n).padStart(2, '0');
+          return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' '
+            + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+        };
+        // 状态/检查点渲染复用公共模块（public/js/script-result.js）；设备状态图标是报告页专有
+        const SR = window.QingxunScriptResult;
+        const getStatusType = SR.getStatusType;
+        const getScriptStatusType = SR.getScriptStatusType;
+        const checkpointsOf = SR.checkpointsOf;
+        const failedCheckpointsOf = SR.failedCheckpointsOf;
+        const formatCheckpoint = SR.formatCheckpoint;
+        const checkpointClass = SR.checkpointClass;
+        const formatConclusion = SR.formatConclusion;
+        const getDeviceStatusType = (s) => ({ completed: 'success', partial: 'warning', failed: 'danger', running: 'primary', pending: 'info' }[s] || 'info');
+        const getDeviceStatusIcon = (s) => ({ completed: '✓', partial: '!', failed: '✗' }[s] || '○');
+
+        // 日志渲染复用公共模块（public/js/script-log.js）
+        const renderLog = (log) => window.QingxunScriptLog.renderLog(log);
+
+        const exportReport = (format) => {
+          window.open('/tasks/' + taskId + '/export_report?format=' + format, '_blank');
+        };
+        const goBack = () => { window.location.href = '/tasks/' + taskId; };
+
+        onMounted(async () => {
+          try {
+            const response = await fetch('/tasks/' + taskId + '/report_data', { headers: { 'Accept': 'application/json' } });
+            report.value = await response.json();
+            if (viewMode.value === 'split') { setViewMode('split'); }
+          } catch (e) { console.error(e); }
+          finally { loading.value = false; }
+        });
+
+        return {
+          report, loading, viewMode, selectedDeviceId, selectedDevice, logDialogVisible, currentScript,
+          setViewMode, selectDevice, showScriptLog, exportReport, goBack, renderLog,
+          formatTime, getStatusType, getDeviceStatusType, getScriptStatusType, getDeviceStatusIcon,
+          checkpointsOf, failedCheckpointsOf, formatCheckpoint, checkpointClass, formatConclusion
+        };
+      }
+    });
+    app.use(ElementPlus);
+    app.component('ExpandableText', window.ExpandableText);
+    app.mount('#task-report-app');
+  })();
+</script>

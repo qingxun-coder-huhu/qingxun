@@ -216,8 +216,13 @@ class TaskScript < ApplicationRecord
   private
   
   # 设置默认参数
+  #
+  # 隐性知识：脚本的 command_mapping 在本项目里是**数组**（命令树），而 parameters
+  # 要求是 JSON 对象。早先无条件把 command_mapping 赋给 parameters，导致用数组映射
+  # 的脚本一建任务就报 "Parameters 必须是JSON对象格式"。这里只在它确实是个 Hash 时才用。
   def set_default_parameters
-    self.parameters = script&.command_mapping || {}
+    mapping = script&.command_mapping
+    self.parameters = mapping.is_a?(Hash) ? mapping : {}
   end
   
   # 更新脚本使用次数

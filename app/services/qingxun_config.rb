@@ -12,14 +12,25 @@ module QingxunConfig
   DEFAULT_LLM_MODEL   = 'deepseek-chat'
 
   class << self
-    # 当前环境的配置哈希（symbol 键）。带缓存，进程内只读一次。
+    # 当前环境的配置哈希（symbol 键）。
+    #
+    # 隐性知识：按配置文件 mtime 缓存——改了 config/qingxun.yml 后**无需重启**，
+    # 下一次调用即重新读取（一次 File.mtime 的成本可忽略）。若无脑 memoize，
+    # 使用者改完 Key 必须重启进程才生效，很容易被误以为"配置没用"。
     def data
-      @data ||= load_data
+      path = config_path
+      mtime = File.exist?(path) ? File.mtime(path) : nil
+      if @data.nil? || @mtime != mtime
+        @data = load_data
+        @mtime = mtime
+      end
+      @data
     end
 
     # 测试用：清缓存
     def reload!
       @data = nil
+      @mtime = nil
     end
 
     def llm
@@ -48,8 +59,12 @@ module QingxunConfig
 
     private
 
+    def config_path
+      Rails.root.join('config', 'qingxun.yml')
+    end
+
     def load_data
-      path = Rails.root.join('config', 'qingxun.yml')
+      path = config_path
       return {} unless File.exist?(path)
 
       raw = YAML.safe_load(ERB.new(File.read(path)).result, aliases: true, permitted_classes: [Symbol]) || {}

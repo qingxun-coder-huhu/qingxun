@@ -32,9 +32,18 @@ Rails.application.routes.draw do
   end
 
   # ---- 任务与设备 ----
-  resources :tasks, only: [:index, :show, :new, :create, :destroy] do
+  resources :tasks, only: [:index, :show, :new, :create, :edit, :update, :destroy] do
+    collection do
+      get :new_data
+    end
     member do
       post :run
+      get :status
+      post :reset
+      get :report
+      get :report_data
+      get :export_report
+      get :edit_data
     end
   end
 
@@ -43,8 +52,12 @@ Rails.application.routes.draw do
 
   # 设备管理（带连接凭据，用于真机执行）
   resources :network_elements, except: [:show] do
+    collection do
+      post :execute_batch
+    end
     member do
       post :test_connection
+      post :execute
     end
   end
 

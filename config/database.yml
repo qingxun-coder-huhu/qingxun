@@ -4,9 +4,9 @@ default: &default
   adapter: postgresql
   encoding: unicode
   # 连接池与 Puma 线程数**解耦**：等上游 LLM 的那几十秒不再持有连接（见 ExternalWait），
-  # 所以线程数可以远大于池。若仍跟着 RAILS_MAX_THREADS，2 进程 × 50 线程 = 池上限 100，
-  # 正好吃掉 PostgreSQL 的全部 max_connections。
-  pool: <%= ENV.fetch("DATABASE_POOL") { 5 } %>
+  # 所以线程数可以远大于池。默认给到 15：任务执行会在后台线程里借连接（见 TaskRunner），
+  # 池太小会被后台执行占满，导致其它请求等待超时。
+  pool: <%= ENV.fetch("DATABASE_POOL") { 15 } %>
   username: <%= ENV.fetch("DATABASE_USERNAME") { "zb" } %>
   password: <%= ENV.fetch("DATABASE_PASSWORD") { "" } %>
   host: <%= ENV.fetch("DATABASE_HOST") { "localhost" } %>

@@ -34,6 +34,9 @@
       <link href="/stylesheets/application.css?v=<%= File.mtime(Rails.root.join('public/stylesheets/application.css')).to_i %>" rel="stylesheet">
     <% end %>
 
+    <%# 页面级「后置」样式钩子：需要覆盖 Bootstrap 的第三方样式（如 Element Plus）放这里 %>
+    <%= yield :head_late %>
+
     <script>
         // 性能指标收集
         let metrics = {};
