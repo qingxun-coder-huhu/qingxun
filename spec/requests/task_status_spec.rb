@@ -53,6 +53,7 @@ RSpec.describe '任务状态接口', type: :request do
 
     s = unit['scripts'].first
     expect(s['name']).to eq(script.name)
+    expect(s['script_uid']).to eq(script.script_uid) # 供「改进脚本」调用 improve_description
     expect(s['status']).to eq('completed')
     expect(s['conclusion']).to eq('success')
     expect(s['logs']).to include('line1')

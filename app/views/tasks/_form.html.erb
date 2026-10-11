@@ -48,7 +48,7 @@
           <div class="pick-list">
             <el-checkbox-group v-model="selectedDeviceIds">
               <div v-for="d in devices" :key="d.id" class="pick-row">
-                <el-checkbox :value="d.id">
+                <el-checkbox :label="d.id">
                   {{ d.name }}
                   <span class="pick-meta">{{ d.device_model }} · {{ d.ip_address }}</span>
                 </el-checkbox>
@@ -73,7 +73,7 @@
           <div class="pick-list">
             <el-checkbox-group v-model="selectedScriptIds">
               <div v-for="s in scripts" :key="s.id" class="pick-row">
-                <el-checkbox :value="s.id">
+                <el-checkbox :label="s.id">
                   {{ s.name }}
                   <span class="pick-meta">{{ s.description }}</span>
                 </el-checkbox>

@@ -126,7 +126,15 @@ lib/telnet_device.rb
 | `app/services/report_generator.rb` / `report_html_generator.rb` | `services/report_generator.rb`、`routes/report_routes.rb` 的 HTML 生成器 | 数据源改为本应用的 Task/TaskRun/TaskExecution |
 | `public/js/expandable-text.js` | 同名 | 无（原样） |
 | `public/js/script-log.js` | 客户端 `views/task_detail.erb` / `views/task_report.erb` 的**内联日志逻辑** | 客户端未把它抽成 JS 模块，这里抽成公共模块：`escapeLogHtml`/`renderLog`/`createLogRefresher`，任务详情页与报告页共用 |
+| `public/js/open-questions.js` | 客户端生成页「待确认」候选点击回填（内联逻辑） | 抽成公共模块 `createQuestionFiller`：点候选把【待确认#N】占位符填进描述（同一 id 多处一次全换、支持改选）；当前用于生成页「用执行日志改进」弹窗 |
 | `public/js/script-result.js` | 客户端两个页面**内联的检查点/结论/状态渲染** | 抽成公共模块：`checkpointsOf`/`failedCheckpointsOf`/`passedCount`/`failedCount`/`formatCheckpoint`/`checkpointClass`/`formatConclusion`/`getScriptStatusType`/`scriptStatusText` 等，两页共用 |
+
+**未复用（上游依赖云端/浏览器 Key）**：`public/js/cloud-improve-dialog.js`、`llm-key-store.js`。
+客户端的「云端改进」是：任务日志上传云端 → 返回一次性 URL → 在**云端生成页**里做改进。
+开源版保留同样的分工（改进在生成页做，不在任务页），只把"云端往返"换成**本地交接**：
+任务详情日志弹窗点「改进脚本」→ 日志与检查点写入 `sessionStorage`（键 `qingxun_exec_log_handoff`）
+→ 跳转脚本生成器；生成页读取交接并打开「用执行日志改进主线描述」弹窗（也可手工粘贴日志）
+→ `POST /scripts/improve_description` → 预览改进后的主线描述 → 一键应用到需求描述框。
 
 **开源版专有的薄适配层**（不含业务逻辑，仅做模型映射；上游没有对应物）：
 

@@ -325,6 +325,10 @@ class TasksController < ApplicationController
     result = exec.result.is_a?(Hash) ? exec.result : {}
     {
       name: exec.script&.name,
+      # 供「改进脚本」调用 /scripts/improve_description 使用
+      script_uid: exec.script&.script_uid,
+      script_description: exec.script&.description,
+      script_prompt: exec.script&.initial_prompt,
       status: display_script_status(exec, result),
       conclusion: conclusion_of(result),
       checkpoints: result['checkpoints'] || [],

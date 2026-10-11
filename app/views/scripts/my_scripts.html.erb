@@ -107,7 +107,7 @@
     <div class="pick-list">
       <el-checkbox-group v-model="selectedDeviceIds">
         <div v-for="d in filteredDevices" :key="d.id" class="pick-row">
-          <el-checkbox :value="d.id">{{ d.name }} <span class="pick-meta">{{ d.ip_address }} · {{ d.device_model }}</span></el-checkbox>
+          <el-checkbox :label="d.id">{{ d.name }} <span class="pick-meta">{{ d.ip_address }} · {{ d.device_model }}</span></el-checkbox>
         </div>
       </el-checkbox-group>
       <el-empty v-if="filteredDevices.length === 0" description="没有匹配的设备"></el-empty>

@@ -105,6 +105,10 @@
                             data-bs-toggle="tooltip" data-bs-title="粘贴手工操作设备的终端日志，由 AI 整理成需求描述框架">
                       <i class="bi bi-clipboard-data me-1"></i>从手工日志生成
                     </button>
+                    <button type="button" class="btn btn-outline-success btn-sm" id="improve-script-button"
+                            data-bs-toggle="tooltip" data-bs-title="用真实执行日志 + 你的要求，改进主线描述（任务详情日志弹窗可直接交接过来）">
+                      <i class="bi bi-wrench-adjustable me-1"></i>用执行日志改进
+                    </button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#fullscreen-editor-modal">
                       <i class="bi bi-arrows-fullscreen me-1"></i>全屏编辑
                     </button>
@@ -137,6 +141,84 @@
                      由 AI 整理成框架；日志里没有的判据一律留成【待确认#N】占位，用户点候选回填。
                      隐性知识：日志长度上限来自 ScriptRequirementDraftService::MAX_LOG_LENGTH，
                      用 data 属性传给前端做计数，避免前后端各写一份数字。 -->
+                <!-- 用执行日志改进主线描述：布局与「从手工操作日志生成需求描述」保持一致
+                     （左：描述框架；右：待确认候选）。日志来自任务详情交接，默认收起不显示，可展开查看/编辑。 -->
+                <div class="modal fade" id="improve-script-modal" tabindex="-1" aria-labelledby="improve-script-label" aria-hidden="true">
+                  <div class="modal-dialog modal-xl modal-dialog-scrollable"
+                       style="--bs-modal-margin: 0.25rem; max-width: min(1800px, calc(100vw - 2rem));">
+                    <div class="modal-content" style="height: 100%;">
+                      <div class="modal-header">
+                        <h5 class="modal-title" id="improve-script-label">
+                          <i class="bi bi-wrench-adjustable me-2"></i>用执行日志改进主线描述
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                      </div>
+                      <div class="modal-body d-flex flex-column">
+                        <div id="improve-alert" class="alert d-none py-2 small" role="alert"></div>
+
+                        <div id="improve-inputs">
+                          <div id="improve-source" class="small text-muted mb-2"></div>
+                          <div class="mb-3">
+                            <label for="improve-requirement" class="form-label fw-medium">你的要求</label>
+                            <textarea class="form-control" id="improve-requirement" rows="3"
+                                      placeholder="例如：端口 Gi0/0/3 本来就该是 down，改成 down 才算通过"></textarea>
+                          </div>
+                          <div class="mb-2">
+                            <a href="#" id="improve-log-toggle" class="small">查看 / 编辑执行日志</a>
+                          </div>
+                          <div id="improve-log-wrap" class="mb-3 d-none">
+                            <textarea class="form-control font-monospace" id="improve-log" rows="10"
+                                      placeholder="执行日志（来自任务详情交接，或在此粘贴）"></textarea>
+                          </div>
+                          <div class="d-flex justify-content-end">
+                            <button type="button" class="btn btn-sm btn-primary" id="improve-run-button">
+                              <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                              <i class="bi bi-stars me-1"></i>生成改进
+                            </button>
+                          </div>
+                        </div>
+
+                        <div id="improve-inputs-summary" class="alert alert-light border py-2 small d-none">
+                          <span id="improve-inputs-summary-text"></span>
+                          <button type="button" class="btn btn-sm btn-link p-0 ms-2 align-baseline"
+                                  id="improve-inputs-expand">展开修改</button>
+                        </div>
+
+                        <div id="improve-result" class="d-none flex-grow-1" style="min-height: 0;">
+                          <div class="d-flex flex-column h-100" style="min-height: 0;">
+                            <hr class="mt-0">
+                            <div id="improve-notes" class="alert alert-info py-2 small d-none"></div>
+                            <div id="improve-apply-fallback" class="d-flex justify-content-end mb-2"></div>
+
+                            <div class="row g-3 flex-grow-1" style="min-height: 0;">
+                              <div class="col-lg-7 d-flex flex-column" style="min-height: 0;">
+                                <label for="improve-preview" class="form-label fw-medium">改进后的主线描述（可编辑）</label>
+                                <textarea class="form-control font-monospace flex-grow-1" id="improve-preview"
+                                          style="min-height: 180px;"></textarea>
+                              </div>
+                              <div id="improve-questions-col" class="col-lg-5 d-flex flex-column d-none" style="min-height: 0;">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                  <span class="fw-medium">待确认 <span class="text-muted small">（点候选即填入左侧描述）</span></span>
+                                  <span id="improve-apply-slot">
+                                    <button type="button" class="btn btn-sm btn-success" id="improve-apply-button" disabled>
+                                      <i class="bi bi-check2 me-1"></i>应用到主线描述
+                                    </button>
+                                  </span>
+                                </div>
+                                <div id="improve-questions" class="flex-grow-1 small"
+                                     style="min-height: 120px; overflow-y: auto;"></div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="modal fade" id="requirement-draft-modal" tabindex="-1" aria-labelledby="requirement-draft-label" aria-hidden="true">
                   <!-- 尺寸都要吃饱屏幕，不跟 Bootstrap 的档位：
                        宽度：xl 档上限只有 1140px，大屏浪费一半；框架与待确认是左右两栏，越宽越好读。
@@ -4248,4 +4330,183 @@
     }
 
   });
+</script>
+
+
+<script src="/js/open-questions.js"></script>
+<script>
+  // 「用执行日志改进主线描述」：布局与「从手工操作日志生成需求描述」一致（左框架 + 右待确认）。
+  // 日志来自任务详情弹窗的交接（sessionStorage），默认收起；改进结果可编辑、待确认点候选回填。
+  (function () {
+    var KEY = 'qingxun_exec_log_handoff';
+    var $ = function (id) { return document.getElementById(id); };
+    var els = {
+      modal: $('improve-script-modal'),
+      button: $('improve-script-button'),
+      alert: $('improve-alert'),
+      inputs: $('improve-inputs'),
+      source: $('improve-source'),
+      logToggle: $('improve-log-toggle'),
+      logWrap: $('improve-log-wrap'),
+      log: $('improve-log'),
+      requirement: $('improve-requirement'),
+      run: $('improve-run-button'),
+      summary: $('improve-inputs-summary'),
+      summaryText: $('improve-inputs-summary-text'),
+      expand: $('improve-inputs-expand'),
+      result: $('improve-result'),
+      preview: $('improve-preview'),
+      questions: $('improve-questions'),
+      questionsCol: $('improve-questions-col'),
+      notes: $('improve-notes'),
+      apply: $('improve-apply-button'),
+      applySlot: $('improve-apply-slot'),
+      applyFallback: $('improve-apply-fallback')
+    };
+    if (!els.modal || !els.button) { return; }
+
+    var checkpoints = [];
+    var sourceError = '';
+
+    var questionFiller = window.QingxunOpenQuestions.createQuestionFiller({
+      previewEl: els.preview,
+      questionsEl: els.questions,
+      onAlert: function (msg) { showAlert(msg, 'warning'); },
+      heading: null // 标题由列头提供，避免重复
+    });
+
+    function csrfToken() {
+      var m = document.querySelector('meta[name="csrf-token"]');
+      return m ? m.content : '';
+    }
+    function showAlert(msg, kind) {
+      els.alert.className = 'alert alert-' + (kind || 'danger') + ' py-2 small';
+      els.alert.textContent = msg;
+    }
+    function clearAlert() { els.alert.className = 'alert d-none py-2 small'; els.alert.textContent = ''; }
+    function resetToInputs() {
+      clearAlert();
+      els.result.classList.add('d-none');
+      els.inputs.classList.remove('d-none');
+      els.summary.classList.add('d-none');
+      els.preview.value = '';
+      els.questions.innerHTML = '';
+      els.notes.classList.add('d-none');
+      els.notes.innerHTML = '';
+      els.apply.disabled = true;
+      els.applySlot.appendChild(els.apply); // 应用按钮归位
+    }
+    function openImprove() {
+      bootstrap.Modal.getOrCreateInstance(els.modal).show();
+    }
+
+    // 任务详情交接：日志放入（默认收起的）日志框，并自动打开弹窗
+    function consumeHandoff() {
+      var raw = null;
+      try { raw = sessionStorage.getItem(KEY); } catch (e) { return; }
+      if (!raw) { return; }
+      try { sessionStorage.removeItem(KEY); } catch (e) { /* 忽略 */ }
+      var data = null;
+      try { data = JSON.parse(raw); } catch (e) { return; }
+      if (!data) { return; }
+
+      els.log.value = data.log || '';
+      checkpoints = data.checkpoints || [];
+      sourceError = data.error || '';
+      els.source.textContent = data.script_name
+        ? ('来源脚本：' + data.script_name + (data.script_status ? ('（' + data.script_status + '）') : ''))
+        : '';
+      resetToInputs();
+      openImprove();
+    }
+
+    els.button.addEventListener('click', function () {
+      resetToInputs();
+      els.source.textContent = '';
+      openImprove();
+    });
+
+    els.logToggle.addEventListener('click', function (event) {
+      event.preventDefault();
+      els.logWrap.classList.toggle('d-none');
+    });
+    els.expand.addEventListener('click', function () {
+      els.inputs.classList.remove('d-none');
+      els.summary.classList.add('d-none');
+    });
+
+    els.run.addEventListener('click', async function () {
+      clearAlert();
+      var requirement = els.requirement.value.trim();
+      if (!requirement) { showAlert('请填写你的要求'); return; }
+
+      var promptEl = document.getElementById('user_prompt');
+      var description = promptEl ? promptEl.value : '';
+
+      var runSpinner = els.run.querySelector('.spinner-border');
+      var runIcon = els.run.querySelector('.bi-stars');
+      els.run.disabled = true;
+      if (runSpinner) { runSpinner.classList.remove('d-none'); }
+      if (runIcon) { runIcon.classList.add('d-none'); }
+      try {
+        var response = await fetch('/scripts/improve_description', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken(), 'Accept': 'application/json' },
+          body: JSON.stringify({
+            description: description,
+            requirement: requirement,
+            log: els.log.value,
+            checkpoints: checkpoints,
+            error: sourceError
+          })
+        });
+        var data = await response.json();
+        if (!data.success) { showAlert(data.error || '生成失败'); return; }
+
+        els.preview.value = data.description || '';
+        // 输入区收成一行摘要，把高度让给结果区（与「从手工操作日志生成」一致）
+        els.inputs.classList.add('d-none');
+        els.summaryText.textContent = '已按你的要求生成改进，请在下方确认并应用。';
+        els.summary.classList.remove('d-none');
+        els.result.classList.remove('d-none');
+
+        var questions = data.open_questions || [];
+        questionFiller.render(questions);
+        if (questions.length > 0) {
+          els.questionsCol.classList.remove('d-none');
+          els.applySlot.appendChild(els.apply);
+        } else {
+          els.questionsCol.classList.add('d-none');
+          els.applyFallback.appendChild(els.apply); // 没有待确认：应用按钮挪到上方兜底位
+        }
+
+        var notes = data.notes || [];
+        if (notes.length) {
+          els.notes.innerHTML = '<div class="fw-medium mb-1">改动说明</div>' +
+            notes.map(function (n) { return '<div>· ' + n + '</div>'; }).join('');
+          els.notes.classList.remove('d-none');
+        } else {
+          els.notes.classList.add('d-none');
+        }
+        els.apply.disabled = false;
+      } catch (e) {
+        showAlert('生成失败：' + e.message);
+      } finally {
+        els.run.disabled = false;
+        if (runSpinner) { runSpinner.classList.add('d-none'); }
+        if (runIcon) { runIcon.classList.remove('d-none'); }
+      }
+    });
+
+    els.apply.addEventListener('click', function () {
+      var promptEl = document.getElementById('user_prompt');
+      if (!promptEl || !els.preview.value) { return; }
+      promptEl.value = els.preview.value;
+      promptEl.dispatchEvent(new Event('input', { bubbles: true }));
+      bootstrap.Modal.getOrCreateInstance(els.modal).hide();
+    });
+
+    document.addEventListener('DOMContentLoaded', consumeHandoff);
+    if (document.readyState !== 'loading') { consumeHandoff(); }
+  })();
 </script>

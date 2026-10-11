@@ -216,6 +216,7 @@
       <div class="u-mb-12">
         <el-button type="primary" size="small" @click="refreshScriptLog">刷新日志</el-button>
         <el-button type="primary" size="small" @click="copyLog">复制日志</el-button>
+        <el-button type="success" size="small" @click="openImprove">改进脚本</el-button>
       </div>
       <div class="script-log-view" v-html="formattedScriptLog"></div>
     </div>
@@ -223,6 +224,7 @@
       <el-button @click="logDetailDialogVisible = false">关闭</el-button>
     </template>
   </el-dialog>
+
 </div>
 
 <script src="/vendor/javascripts/vue.global.prod.js"></script>
@@ -375,6 +377,23 @@
             currentScriptLog.value = currentScript.value.output || currentScript.value.logs || currentScriptLog.value;
           }
         };
+        // ---- 改进脚本：把执行日志交接到脚本生成器（改进在生成页里做，类似客户端/云端的做法）----
+        const openImprove = () => {
+          const s = currentScript.value || {};
+          try {
+            sessionStorage.setItem('qingxun_exec_log_handoff', JSON.stringify({
+              script_uid: s.script_uid,
+              script_name: s.name,
+              log: currentScriptLog.value || '',
+              checkpoints: s.checkpoints || [],
+              error: s.error || '',
+              script_status: s.status || ''
+            }));
+          } catch (e) { /* 忽略 */ }
+          const uid = s.script_uid;
+          window.location.href = '/scripts' + (uid ? ('?script_uid=' + encodeURIComponent(uid)) : '');
+        };
+
         const copyLog = async () => {
           try { await navigator.clipboard.writeText(currentScriptLog.value || ''); }
           catch (e) { console.error('复制失败', e); }
@@ -400,7 +419,8 @@
           unitDetailDialogVisible, currentUnit, logDetailDialogVisible, currentScript, currentScriptLog, formattedScriptLog,
           formatTime, getStatusType, getUnitStatusType, getScriptStatusType, scriptStatusText,
           checkpointsOf, failedCheckpointsOf, passedCount, failedCount, formatCheckpoint, checkpointClass, formatConclusion,
-          startTask, resetTask, saveTask, goBack, goReport, showUnitDetail, showCurrentScriptLog, showScriptLog, refreshScriptLog, copyLog
+          startTask, resetTask, saveTask, goBack, goReport, showUnitDetail, showCurrentScriptLog, showScriptLog, refreshScriptLog, copyLog,
+          openImprove
         };
       }
     });
