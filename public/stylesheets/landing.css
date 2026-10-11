@@ -1,0 +1,676 @@
+/* 清巡 首页样式（自 landing.html.erb 内联样式抽出）
+   依赖：bootstrap.min.css、bootstrap-icons.css、brand.css（brand.css 必须先加载） */
+
+    /* 颜色 token 统一在 brand.css。这里只保留首页沿用下来的别名，
+       避免改动下面上百处 var() 使用点。 */
+    :root {
+      --teal:       var(--brand);
+      --teal-light: var(--brand-light);
+      --cyan:       var(--brand-accent);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+                   'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
+      background: var(--bg-main);
+      color: var(--text-primary);
+      line-height: 1.7;
+      margin: 0;
+    }
+
+    /* 导航 */
+    /* Hero */
+    .hero {
+      /* 导航已改为文档流内（原先是 fixed 浮层），不再需要为它预留高度，
+         这里只留出视觉呼吸空间。 */
+      padding: 48px 0 80px;
+      background: linear-gradient(135deg, #f0fdfa 0%, #eff6ff 50%, #faf5ff 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--teal), var(--blue), var(--purple), var(--pink));
+    }
+
+    .hero-deco {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .hero-deco-1 {
+      width: 400px;
+      height: 400px;
+      background: var(--cyan);
+      top: -100px;
+      right: -100px;
+    }
+
+    .hero-deco-2 {
+      width: 300px;
+      height: 300px;
+      background: var(--purple-light);
+      bottom: -50px;
+      left: -50px;
+    }
+
+    .hero-deco-3 {
+      width: 200px;
+      height: 200px;
+      background: var(--orange-light);
+      top: 50%;
+      right: 30%;
+      opacity: 0.2;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.2); }
+    }
+
+    .hero-title {
+      font-size: 3rem;
+      font-weight: 900;
+      line-height: 1.15;
+      margin-bottom: 1.25rem;
+      letter-spacing: -0.02em;
+    }
+
+    @media (max-width: 768px) {
+      .hero-title { font-size: 2rem; }
+      .hero { padding: 36px 0 60px; }
+    }
+
+    .hero-title .hl {
+      background: linear-gradient(135deg, var(--teal), var(--blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-desc {
+      font-size: 1.125rem;
+      color: var(--text-secondary);
+      max-width: 540px;
+      margin-bottom: 2rem;
+    }
+
+    /* Demo卡片 */
+    .demo-card {
+      background: white;
+      border-radius: 20px;
+      padding: 1.75rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+      border: 1px solid var(--border-light);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .demo-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--teal), var(--blue), var(--purple));
+    }
+
+    .demo-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .demo-icon {
+      width: 44px;
+      height: 44px;
+      background: var(--grad-brand);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+    }
+
+    .demo-title {
+      font-weight: 600;
+      font-size: 0.9375rem;
+    }
+
+    .demo-input {
+      width: 100%;
+      background: var(--bg-muted);
+      border: 1px solid var(--border-light);
+      border-radius: 10px;
+      padding: 0.875rem;
+      font-size: 0.9375rem;
+      color: var(--text-primary);
+      resize: none;
+      margin-bottom: 1rem;
+      transition: all 0.15s;
+    }
+
+    .demo-input:focus {
+      outline: none;
+      border-color: var(--teal);
+      background: white;
+      box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+    }
+
+    /* 按钮 */
+    .btn-teal {
+      background: var(--grad-brand);
+      color: white;
+      border: none;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--r-sm);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.15s;
+      box-shadow: var(--sh-brand);
+    }
+
+    .btn-teal:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--sh-brand-hover);
+      color: white;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid var(--border-light);
+      color: var(--text-primary);
+      font-weight: 500;
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--r-sm);
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+
+    .btn-outline:hover {
+      border-color: var(--brand);
+      background: rgba(13, 148, 136, 0.05);
+      color: var(--brand);
+    }
+
+    .btn-demo {
+      width: 100%;
+      background: var(--grad-brand);
+      color: white;
+      border: none;
+      font-weight: 600;
+      padding: 0.875rem;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+      box-shadow: var(--sh-brand);
+    }
+
+    .btn-demo:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--sh-brand-hover);
+    }
+    .btn-demo:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    /* 章节 */
+    .section {
+      padding: 80px 0;
+    }
+
+    .section-white { background: white; }
+    .section-gray { background: var(--bg-main); }
+
+    .section-hd {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .section-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--teal);
+      margin-bottom: 0.75rem;
+      padding: 0.375rem 0.875rem;
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.08), rgba(6, 182, 212, 0.08));
+      border-radius: 100px;
+    }
+
+    .section-label-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--teal);
+    }
+
+    .section-title {
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .section { padding: 60px 0; }
+      .section-title { font-size: 1.5rem; }
+    }
+
+    .section-desc {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 992px) {
+    }
+
+    /* 架构图 */
+    .arch-box {
+      background: white;
+      border: 1px solid var(--border-light);
+      border-radius: 16px;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .arch-box::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--teal), var(--blue), var(--purple));
+    }
+
+    .arch-flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .arch-node {
+      background: var(--bg-muted);
+      border: 1px solid var(--border-light);
+      border-radius: 12px;
+      /* 可弹性收缩：原先 min-width:130px 撑住三个节点要 ~478px，
+         而笔记本宽度下外框只剩 ~390px，于是节点换行堆叠、左右箭头对不上。
+         改成按份数均分并允许收缩，一行放得下。 */
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 1.1rem 0.75rem;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .arch-node:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+
+    .arch-node-title {
+      font-weight: 700;
+      font-size: 0.9375rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .arch-node-desc {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .arch-arrow {
+      flex: 0 0 auto;
+      color: var(--text-muted);
+      font-size: 1.25rem;
+    }
+
+    @media (max-width: 768px) {
+      /* 窄屏放不下三个节点并排（会被压到几十像素、文字竖着挤成一列），
+         改为竖排并把箭头转 90°，读起来仍是同一顺序 */
+      .arch-flow { flex-direction: column; }
+      .arch-node { width: 100%; }
+      .arch-arrow { transform: rotate(90deg); }
+    }
+
+    .arch-note {
+      text-align: center;
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-light);
+    }
+
+    .arch-note-text {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--teal);
+      background: rgba(13, 148, 136, 0.08);
+      padding: 0.5rem 1rem;
+      border-radius: 100px;
+    }
+
+    .arch-note-text i { font-size: 1rem; }
+
+    /* 功能列表 */
+    .feature-list-simple {
+      background: white;
+      border: 1px solid var(--border-light);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border-light);
+      transition: background 0.15s;
+    }
+
+    .feature-item:last-child {
+      border-bottom: none;
+    }
+
+    .feature-item:hover {
+      background: rgba(0,0,0,0.01);
+    }
+
+    .feature-item-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: white;
+      font-size: 1rem;
+    }
+
+    .feature-item-icon.teal { background: var(--grad-brand); }
+    .feature-item-icon.blue { background: linear-gradient(135deg, var(--blue), var(--blue-light)); }
+    .feature-item-icon.purple { background: linear-gradient(135deg, var(--purple), var(--purple-light)); }
+    .feature-item-icon.orange { background: linear-gradient(135deg, var(--orange), var(--orange-light)); }
+
+    .feature-item-content { flex: 1; }
+
+    .feature-item-title {
+      font-weight: 600;
+      font-size: 0.9375rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .feature-item-desc {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    @media (max-width: 992px) {
+    }
+
+    @media (max-width: 576px) {
+    }
+
+    /* 快速上手 */
+    .step-card {
+      background: white;
+      border: 1px solid var(--border-light);
+      border-radius: 16px;
+      padding: 1.75rem;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.2s;
+    }
+
+    .step-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+    }
+
+    .step-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+    }
+
+    .step-card.primary::before { background: linear-gradient(90deg, var(--teal), var(--cyan)); }
+    .step-card.secondary::before { background: linear-gradient(90deg, var(--blue), var(--blue-light)); }
+
+    .step-num {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1rem;
+      color: white;
+      margin-bottom: 1rem;
+    }
+
+    .step-card.primary .step-num { background: var(--grad-brand); }
+    .step-card.secondary .step-num { background: linear-gradient(135deg, var(--blue), var(--blue-light)); }
+
+    .step-title {
+      font-weight: 700;
+      font-size: 1.125rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .step-list {
+      margin: 0;
+      padding-left: 1.25rem;
+      color: var(--text-secondary);
+      font-size: 0.9375rem;
+    }
+
+    .step-list li { margin-bottom: 0.5rem; }
+    .step-list li:last-child { margin-bottom: 0; }
+
+    /* FAQ */
+    .faq-item {
+      background: white;
+      border: 1px solid var(--border-light);
+      border-radius: 10px;
+      margin-bottom: 0.75rem;
+      overflow: hidden;
+      transition: all 0.2s;
+    }
+
+    .faq-item:hover {
+      border-color: rgba(13, 148, 136, 0.3);
+    }
+
+    .faq-q {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      background: none;
+      border: none;
+      color: var(--text-primary);
+      font-weight: 600;
+      font-size: 0.9375rem;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .faq-q:hover { background: var(--bg-muted); }
+
+    .faq-q i {
+      color: var(--teal);
+      transition: transform 0.2s;
+    }
+
+    .faq-item.active .faq-q i { transform: rotate(180deg); }
+
+    .faq-a {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s;
+    }
+
+    .faq-item.active .faq-a { max-height: 250px; }
+
+    .faq-a-inner {
+      padding: 0 1.25rem 1rem;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+
+    /* Footer */
+    .footer {
+      background: white;
+      border-top: 1px solid var(--border-light);
+      padding: 1.5rem 0;
+    }
+
+    .footer-text {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    /* 动画 */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s, transform 0.6s;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+    }
+
+    /* 首页演示：手工日志输入框与提示 */
+    .demo-input.demo-log {
+      font-family: 'Consolas', 'Monaco', 'SFMono-Regular', monospace;
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      resize: vertical;
+      white-space: pre;
+      overflow-x: auto;
+    }
+
+    /* 「目标」是单行输入，字号收一点，让示例那句话不被截断 */
+    .demo-input.demo-goal {
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+
+    .demo-hint {
+      margin-top: 0.75rem;
+      font-size: 0.75rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    /* 演示卡里的步骤标签：把「贴日志 → 拿到命令清单」这条因果说出来 */
+    .demo-step {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
+
+    .demo-step-out { margin-top: 0.875rem; margin-bottom: 0; }
+
+    .demo-step-no {
+      flex: 0 0 auto;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--grad-brand);
+      color: white;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Hero 左栏的能力清单（日志转脚本 / 写规格自动生成 / 可微调） */
+    .hero-features {
+      display: grid;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .hero-feature {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .hero-feature-icon {
+      flex: 0 0 auto;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+    }
+
+    .hero-feature-title {
+      font-size: 0.9375rem;
+      font-weight: 700;
+      margin-bottom: 0.125rem;
+    }
+
+    .hero-feature-desc {
+      font-size: 0.8125rem;
+      line-height: 1.55;
+      color: var(--text-secondary);
+      margin: 0;
+    }

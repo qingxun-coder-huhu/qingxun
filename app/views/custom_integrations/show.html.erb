@@ -1,0 +1,269 @@
+<div class="container-fluid mb-5">
+  <!-- Rails flash 消息 -->
+  <% if flash.now[:alert] %>
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i><%= flash.now[:alert] %>
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+  <% end %>
+  <% if flash.now[:notice] %>
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+      <i class="bi bi-check-circle-fill me-2"></i><%= flash.now[:notice] %>
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+  <% end %>
+
+  <!-- 保存成功提示 -->
+  <div id="save-success-alert" class="alert alert-success alert-dismissible fade d-none" role="alert">
+    <i class="bi bi-check-circle me-2"></i>保存成功
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+  </div>
+
+  <div class="row mb-4">
+    <div class="col">
+      <h1 class="h2 fw-light">
+        <i class="bi bi-tools me-2 text-primary"></i>我的自定义集成
+      </h1>
+      <p class="text-muted mt-2 mb-0">定义你的自定义函数，在脚本中通过 <code>custom.函数名</code> 调用</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body overflow-auto">
+          <%= form_with model: @integration, url: custom_integration_path, method: :patch, html: { id: 'integration-form' } do |f| %>
+            <div id="functions-container">
+              <% (@integration.functions.presence || [{}]).each_with_index do |func, index| %>
+                <div class="function-row mb-4 p-3 border rounded">
+                  <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="mb-0">函数 <%= index + 1 %></h6>
+                    <% if index > 0 %>
+                      <button type="button" class="btn btn-outline-danger btn-sm remove-function-btn">
+                        <i class="bi bi-trash"></i> 删除
+                      </button>
+                    <% end %>
+                  </div>
+                  <div class="row g-3">
+                    <div class="col-12 col-md-4">
+                      <label class="form-label fw-medium text-muted">函数名（如 send_alarm）</label>
+                      <input type="text" name="functions[<%= index %>][name]"
+                             class="form-control"
+                             value="<%= func['name'] %>>
+                    </div>
+                    <div class="col-12 col-md-8">
+                      <label class="form-label fw-medium text-muted">参数示例 (JSON) 如 {"cpu": 90, "host": "server1"}</label>
+                      <input type="text" name="functions[<%= index %>][param_example]"
+                             class="form-control font-monospace"
+                             value="<%= func['param_example'] %>>
+                    </div>
+                    <div class="col-12">
+                      <label class="form-label fw-medium text-muted">模拟响应 (JSON) 如 {"success": true, "message": "alarm sent"}</label>
+                      <textarea name="functions[<%= index %>][mock_response]"
+                                class="form-control font-monospace" rows="3"><%= func['mock_response'] %></textarea>
+                    </div>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+
+            <button type="button" class="btn btn-outline-secondary btn-sm mb-4" id="add-function-btn">
+              <i class="bi bi-plus-lg me-1"></i>添加函数
+            </button>
+
+            <div class="d-flex justify-content-end gap-2 pt-3 border-top">
+              <%= link_to '返回脚本生成器', scripts_path, class: 'btn btn-outline-secondary' %>
+              <%= f.submit '保存', class: 'btn btn-primary' %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body overflow-auto">
+          <h6 class="mb-3">
+            <i class="bi bi-lightbulb me-2 text-muted"></i>使用提示
+          </h6>
+          <div class="text-muted small mb-4">
+            <p class="mb-2">在脚本生成时，你可以在需求中说明：</p>
+            <ul class="mb-0">
+              <li class="mb-1">将解析出的数据通过 <code>custom.函数名( 参数 )</code> 发送给自定义接口</li>
+              <li class="mb-1">参数格式需符合你定义的参数示例，如 <code>{"cpu": 90}</code></li>
+              <li>服务端调试时会返回你预设的模拟响应</li>
+            </ul>
+          </div>
+
+          <h6 class="mb-3">
+            <i class="bi bi-code-slash me-2 text-primary"></i>生成代码
+          </h6>
+          <pre class="bg-light p-3 rounded small m-0"><code id="integration-example-code" class="language-ruby"><%= @generated_example_code %></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let functionIndex = <%= @integration.functions.size || 1 %>;
+
+// 重新计算所有函数行的索引
+function reindexFunctionRows() {
+  const rows = document.querySelectorAll('.function-row');
+  rows.forEach((row, index) => {
+    // 更新标题
+    const title = row.querySelector('h6');
+    if (title) {
+      title.textContent = `函数 ${index + 1}`;
+    }
+
+    // 更新所有input/textarea的name属性
+    const nameInput = row.querySelector('input[name$="[name]"]');
+    const paramInput = row.querySelector('input[name$="[param_example]"]');
+    const mockTextarea = row.querySelector('textarea[name$="[mock_response]"]');
+
+    if (nameInput) nameInput.name = `functions[${index}][name]`;
+    if (paramInput) paramInput.name = `functions[${index}][param_example]`;
+    if (mockTextarea) mockTextarea.name = `functions[${index}][mock_response]`;
+  });
+
+  // 更新全局functionIndex（用于添加新函数）
+  functionIndex = rows.length;
+}
+
+document.getElementById('add-function-btn').addEventListener('click', function() {
+  const container = document.getElementById('functions-container');
+  const newRow = document.createElement('div');
+  newRow.className = 'function-row mb-4 p-3 border rounded';
+  newRow.innerHTML = `
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h6 class="mb-0">函数 ${functionIndex + 1}</h6>
+      <button type="button" class="btn btn-outline-danger btn-sm remove-function-btn">
+        <i class="bi bi-trash"></i> 删除
+      </button>
+    </div>
+    <div class="row g-3">
+      <div class="col-12 col-md-4">
+        <label class="form-label fw-medium text-muted">函数名（如 send_alarm）</label>
+        <input type="text" name="functions[${functionIndex}][name]"
+               class="form-control">
+      </div>
+      <div class="col-12 col-md-8">
+        <label class="form-label fw-medium text-muted">参数示例 (JSON) 如 {"cpu": 90, "host": "server1"}</label>
+        <input type="text" name="functions[${functionIndex}][param_example]"
+               class="form-control font-monospace">
+      </div>
+      <div class="col-12">
+        <label class="form-label fw-medium text-muted">模拟 响应 (JSON) 如 {"success": true, "message": "alarm sent"}</label>
+        <textarea name="functions[${functionIndex}][mock_response]"
+                  class="form-control font-monospace" rows="3"></textarea>
+      </div>
+    </div>
+  `;
+  container.appendChild(newRow);
+  functionIndex++;
+});
+
+document.getElementById('functions-container').addEventListener('click', function(e) {
+  if (e.target.closest('.remove-function-btn')) {
+    const row = e.target.closest('.function-row');
+    row.remove();
+
+    // 重新计算所有行的索引
+    reindexFunctionRows();
+  }
+});
+
+// 页面加载完成后高亮示例代码
+document.addEventListener('DOMContentLoaded', function() {
+  const codeEl = document.getElementById('integration-example-code');
+  if (codeEl && typeof hljs !== 'undefined') {
+    hljs.highlightElement(codeEl);
+  }
+});
+
+// 表单提交成功提示
+document.getElementById('integration-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+
+  const form = e.target;
+  const formData = new FormData(form);
+  const alert = document.getElementById('save-success-alert');
+  const submitBtn = form.querySelector('input[type="submit"], button[type="submit"]');
+
+  // 禁用提交按钮防止重复提交
+  submitBtn.disabled = true;
+  submitBtn.textContent = '保存中...';
+
+  // 获取 CSRF token
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+  const headers = {
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'application/json'
+  };
+
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken;
+  }
+
+  fetch(form.action, {
+    method: 'PATCH',
+    body: formData,
+    headers: headers
+  })
+  .then(response => {
+    if (response.ok) {
+      return response.json();
+    } else if (response.status === 422) {
+      return response.json().then(data => {
+        throw new Error(data.errors ? data.errors.join(', ') : '保存失败');
+      });
+    } else {
+      throw new Error('保存失败: ' + response.status);
+    }
+  })
+  .then(data => {
+    // 显示成功提示
+    alert.className = 'alert alert-success alert-dismissible fade show';
+    alert.innerHTML = '<i class="bi bi-check-circle me-2"></i>保存成功<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+
+    // 8秒后自动隐藏
+    setTimeout(function() {
+      alert.classList.remove('show');
+      alert.classList.add('hide');
+      setTimeout(function() {
+        alert.classList.add('d-none');
+      }, 150);
+    }, 8000);
+  })
+  .catch(error => {
+    console.error('保存失败:', error);
+
+    // 使用服务器返回的具体错误消息
+    const errorMessage = error.message || '保存失败，请重试';
+    alert.classList.remove('alert-success');
+    alert.classList.add('alert-danger');
+    alert.innerHTML = '<i class="bi bi-exclamation-circle me-2"></i>' + errorMessage;
+    alert.classList.remove('d-none', 'hide');
+    alert.classList.add('show');
+
+    // 错误显示10秒后自动隐藏
+    setTimeout(function() {
+      alert.classList.remove('show');
+      alert.classList.add('hide');
+      setTimeout(function() {
+        alert.classList.add('d-none');
+        // 重置为初始状态（隐藏的成功提示）
+        alert.className = 'alert alert-success alert-dismissible fade d-none';
+        alert.innerHTML = '<i class="bi bi-check-circle me-2"></i>保存成功<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>';
+      }, 150);
+    }, 10000);
+  })
+  .finally(() => {
+    submitBtn.disabled = false;
+    submitBtn.textContent = '保存';
+  });
+});
+</script>

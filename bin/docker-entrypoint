@@ -1,0 +1,15 @@
+#!/bin/bash -e
+
+# 容器入口：清掉残留 pid，启动服务器前自动准备/迁移数据库。
+if [ -f tmp/pids/server.pid ]; then
+  rm -f tmp/pids/server.pid
+fi
+mkdir -p tmp/pids
+
+# 只在启动 Web 服务器时准备数据库（避免其它命令如 rails console 反复迁移）
+if [ "${1}" = "bin/rails" ] && [ "${2}" = "server" ]; then
+  echo "[entrypoint] 准备数据库…"
+  bin/rails db:prepare
+fi
+
+exec "${@}"

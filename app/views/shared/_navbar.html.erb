@@ -1,0 +1,40 @@
+<%# 全站唯一导航（开源版）：免登录、无凭据入口、无管理后台。 %>
+<nav class="navbar navbar-expand-lg navbar-app">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <i class="bi bi-terminal-fill me-1"></i> 清巡
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item">
+          <a class="nav-link <%= 'active' if request.path.start_with?('/scripts') && !request.path.start_with?('/scripts/my_scripts') %>" href="/scripts">脚本生成器</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link <%= 'active' if request.path.start_with?('/scripts/my_scripts') %>" href="/scripts/my_scripts">我的脚本</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link <%= 'active' if request.path.start_with?('/tasks') %>" href="/tasks">任务</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link <%= 'active' if request.path.start_with?('/device_models') %>" href="/device_models">设备型号</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link <%= 'active' if request.path == '/custom_integration' %>" href="/custom_integration">自定义集成</a>
+        </li>
+      </ul>
+
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item">
+          <a class="nav-link <%= 'active' if request.path == '/guide' %>" href="/guide">使用指南</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link <%= 'active' if request.path == '/help' %>" href="/help">帮助</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>

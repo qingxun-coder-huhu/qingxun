@@ -1,0 +1,265 @@
+/* 应用侧样式（首页之外的全部页面）。
+   ============================================================================
+   依赖 brand.css 先加载：颜色/字体/圆角/阴影全部取自那里的 token，本文件不再
+   写死色值（改主色只改 brand.css 一处）。
+
+   隐性知识：本项目没有资产管线，app/assets/stylesheets/ 下的同名文件是**死代码**，
+   永远不会被编译或下发。改样式只改这里（public/stylesheets/application.css）。
+   ============================================================================ */
+
+/* Override Bootstrap primary color */
+/* 按钮（主/成功/描边）的品牌化处理已移到 brand.css —— 首页不加载本文件，
+   放在这里首页就漏掉了（key-setup 弹窗的 .btn-primary 曾因此显示成 Bootstrap 蓝）。 */
+
+.bg-primary {
+  background-color: var(--brand) !important;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%) !important;
+}
+
+/* Navbar gradient */
+.navbar.bg-primary {
+  background-color: var(--brand) !important;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%) !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Card headers */
+.card-header.bg-primary {
+  background-color: var(--brand) !important;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%) !important;
+  color: white !important;
+  border-bottom: none;
+}
+
+.card-header.bg-success {
+  background-color: var(--success) !important;
+  background: linear-gradient(135deg, var(--success) 0%, var(--success-dark) 100%) !important;
+  color: white !important;
+  border-bottom: none;
+}
+
+.card-header.bg-warning {
+  background-color: var(--warning) !important;
+  background: linear-gradient(135deg, var(--warning) 0%, var(--warning-dark) 100%) !important;
+  color: var(--gray-800) !important;
+  border-bottom: none;
+}
+
+.card-header.bg-secondary {
+  background-color: var(--gray-500) !important;
+  background: linear-gradient(135deg, var(--gray-500) 0%, var(--gray-600) 100%) !important;
+  color: white !important;
+  border-bottom: none;
+}
+
+/* Cards */
+.card {
+  /* 对齐首页的卡片语言：浅描边 + 大圆角 + 柔和阴影 */
+  border: 1px solid var(--border-light) !important;
+  border-radius: var(--r-xl);
+  box-shadow: var(--sh-card);
+}
+
+/* Footer */
+.bg-dark {
+  background-color: var(--gray-800) !important;
+  background: linear-gradient(135deg, var(--gray-800) 0%, var(--gray-900) 100%) !important;
+  color: var(--border) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Code blocks */
+pre code {
+  background-color: var(--gray-100) !important;
+  border-left: 4px solid var(--brand) !important;
+  border-radius: var(--r-sm);
+  padding: 1rem !important;
+}
+
+/* Debug areas */
+#debug-logs,
+#debug-result {
+  background-color: #ffffff !important;
+  border-color: var(--border-light) !important;
+  color: var(--gray-700);
+  border-radius: var(--r-sm);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* Alerts */
+.alert {
+  border-radius: var(--r-sm);
+  border: none;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.alert-success {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.2) 100%) !important;
+  color: var(--success) !important;
+  border-left: 4px solid var(--success) !important;
+}
+
+.alert-warning {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.2) 100%) !important;
+  color: var(--warning) !important;
+  border-left: 4px solid var(--warning) !important;
+}
+
+.alert-danger {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.2) 100%) !important;
+  color: var(--danger) !important;
+  border-left: 4px solid var(--danger) !important;
+}
+
+.alert-info {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(6, 182, 212, 0.2) 100%) !important;
+  color: var(--brand-accent) !important;
+  border-left: 4px solid var(--brand-accent) !important;
+}
+
+/* Tab navigation styles for script/mapping tabs */
+.card-header .nav-tabs {
+  border-bottom: none;
+  margin-bottom: -1px;
+}
+
+.card-header .nav-tabs .nav-link {
+  color: rgba(255, 255, 255, 0.8);
+  background-color: transparent;
+  border: none;
+  border-radius: 0.5rem 0.5rem 0 0;
+  margin-right: 0.25rem;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+}
+
+.card-header .nav-tabs .nav-link:hover {
+  color: white;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.card-header .nav-tabs .nav-link.active {
+  background-color: white !important;
+  color: var(--gray-700) !important;
+  border: none;
+  box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.card-header.bg-success .nav-tabs .nav-link.active {
+  color: var(--success) !important;
+}
+
+.card-header.bg-primary .nav-tabs .nav-link.active {
+  color: var(--brand) !important;
+}
+
+.card-header.bg-warning .nav-tabs .nav-link.active {
+  color: var(--warning) !important;
+}
+
+.card-header.bg-secondary .nav-tabs .nav-link.active {
+  color: var(--gray-500) !important;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+.badge {
+  font-weight: 500;
+  letter-spacing: 0.025em;
+}
+
+.table thead th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+.accordion-button:not(.collapsed) {
+  background-color: rgba(13, 148, 136, 0.05);
+  color: var(--brand);
+}
+
+.accordion-button:focus {
+  box-shadow: 0 0 0 0.25rem rgba(13, 148, 136, 0.15);
+}
+
+.card[style*="border: 2px solid var(--brand)"] {
+  transform: scale(1.02);
+  transition: transform 0.3s ease;
+}
+
+.card[style*="border: 2px solid var(--brand)"]:hover {
+  transform: scale(1.05);
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 登录链接增强效果 */
+a[href="/login"] {
+  transition: all 0.2s ease;
+}
+
+a[href="/login"]:hover {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
+
+a[href="/login"] .bi-box-arrow-in-right {
+  transition: transform 0.2s ease;
+}
+
+a[href="/login"]:hover .bi-box-arrow-in-right {
+  transform: translateX(3px);
+}
+
+/* 按钮平滑过渡 */
+.btn {
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 响应式优化 */
+@media (max-width: 768px) {
+  .hero-section {
+    padding-top: 2rem !important;
+    padding-bottom: 2rem !important;
+  }
+  
+  .display-3 {
+    font-size: calc(1.5rem + 3vw);
+  }
+  
+  .display-4 {
+    font-size: calc(1.3rem + 2vw);
+  }
+  
+  .btn-lg {
+    padding: 0.75rem 1.5rem !important;
+    font-size: 1rem !important;
+  }
+}

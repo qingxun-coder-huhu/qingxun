@@ -1,0 +1,156 @@
+<%# 设备型号管理
+    业务逻辑：用户维护自己的设备型号清单，脚本生成页的"支持的设备型号"从这份清单取候选。
+    隐性知识：型号是脚本与设备匹配的依据，清单里的写法要统一（大小写/空格），
+             生成页按名称排序展示就是靠这里的默认顺序（见 DeviceModel.ordered）。 %>
+<div class="container-fluid mb-5">
+  <div class="row mb-4">
+    <div class="col">
+      <div class="d-flex justify-content-between align-items-center">
+        <h1 class="h3 mb-0">
+          <i class="bi bi-hdd-network"></i> 设备型号管理
+        </h1>
+        <%= link_to scripts_path, class: 'btn btn-outline-secondary btn-sm' do %>
+          <i class="bi bi-arrow-left me-1"></i>返回脚本生成器
+        <% end %>
+      </div>
+      <p class="text-muted mt-2 mb-0">
+        维护您管理的设备型号。脚本生成页的「支持的设备型号」会从这里取候选，
+        先在这里把型号写统一，脚本与设备的匹配就不会因写法不一致而落空。
+      </p>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-5">
+      <div class="card shadow-sm">
+        <div class="card-header bg-white">
+          <h6 class="mb-0"><i class="bi bi-plus-lg me-1"></i>添加设备型号</h6>
+        </div>
+        <div class="card-body">
+          <% if @device_model.errors.any? %>
+            <div class="alert alert-danger py-2 small" role="alert">
+              <% @device_model.errors.full_messages.each do |message| %>
+                <div><%= message %></div>
+              <% end %>
+            </div>
+          <% end %>
+
+          <%= form_with model: @device_model, url: device_models_path, method: :post, local: true do |f| %>
+            <div class="mb-3">
+              <%= f.label :name, '型号名称', class: 'form-label fw-medium' %>
+              <%= f.text_field :name, class: 'form-control', id: 'new-device-model-name',
+                                      placeholder: '例如：Cisco Catalyst 2960', autocomplete: 'off', required: true %>
+              <div class="form-text small">请填写完整、准确的型号，多个型号请分别添加（脚本里可多选）。</div>
+            </div>
+            <%= f.submit '添加', class: 'btn btn-primary' %>
+          <% end %>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-7">
+      <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+          <h6 class="mb-0"><i class="bi bi-list-ul me-1"></i>型号清单</h6>
+          <span class="small text-muted">共 <%= @device_models.size %> 个型号</span>
+        </div>
+        <div class="card-body p-0">
+          <% if @device_models.any? %>
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>型号名称</th>
+                    <th class="text-muted small">添加时间</th>
+                    <th class="text-end">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% @device_models.each do |device_model| %>
+                    <tr>
+                      <td><code><%= device_model.name %></code></td>
+                      <td class="text-muted small"><%= device_model.created_at.strftime('%Y-%m-%d') %></td>
+                      <td class="text-end">
+                        <button type="button" class="btn btn-sm btn-outline-secondary edit-device-model-button"
+                                data-id="<%= device_model.id %>"
+                                data-name="<%= device_model.name %>">
+                          <i class="bi bi-pencil me-1"></i>编辑
+                        </button>
+                        <%= button_to device_model_path(device_model), method: :delete,
+                                      class: 'btn btn-sm btn-outline-danger',
+                                      form: { class: 'd-inline device-model-delete-form' } do %>
+                          <i class="bi bi-trash me-1"></i>删除
+                        <% end %>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          <% else %>
+            <div class="text-center text-muted py-5">
+              <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+              还没有维护任何设备型号。先在左侧添加一个吧。
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%# 编辑弹框：一份表单，由 JS 按所点行填充 id 与名称 %>
+<div class="modal fade" id="device-model-edit-modal" tabindex="-1" aria-labelledby="device-model-edit-label" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <%= form_with url: device_models_path, method: :patch, html: { id: 'device-model-edit-form' } do |f| %>
+        <div class="modal-header">
+          <h5 class="modal-title" id="device-model-edit-label">编辑设备型号</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-0">
+            <%= f.label :name, '型号名称', class: 'form-label fw-medium' %>
+            <%= f.text_field :name, class: 'form-control', id: 'edit-device-model-name', required: true, autocomplete: 'off' %>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <%= f.submit '保存', class: 'btn btn-primary' %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 编辑弹框：把所点行的 id/名称填进表单，并把表单指向该行的 update 路径。
+  // 隐性知识：表单是共用的，所以每次打开都要**重设 action**；否则第二次编辑会提交到第一条的路径。
+  (function () {
+    var form = document.getElementById('device-model-edit-form');
+    if (!form) { return; }
+    var nameInput = document.getElementById('edit-device-model-name');
+
+    document.querySelectorAll('.edit-device-model-button').forEach(function (button) {
+      button.addEventListener('click', function () {
+        form.action = '/device_models/' + button.dataset.id;
+        nameInput.value = button.dataset.name;
+        var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('device-model-edit-modal'));
+        modal.show();
+      });
+    });
+
+    // 删除前确认：项目未引入 Turbo，data-turbo-confirm 不生效，这里自己拦 submit。
+    document.querySelectorAll('.device-model-delete-form').forEach(function (form) {
+      form.addEventListener('submit', function (event) {
+        if (!window.confirm('确定删除该设备型号吗？删除后不影响已保存脚本里已填的型号。')) {
+          event.preventDefault();
+        }
+      });
+    });
+
+    // 从服务端渲染回来的校验错误：自动聚焦到新增输入框，省得用户找不到
+    var newInput = document.getElementById('new-device-model-name');
+    if (newInput) { newInput.focus(); }
+  })();
+</script>

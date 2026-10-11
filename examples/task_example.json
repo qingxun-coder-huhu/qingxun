@@ -1,0 +1,30 @@
+{
+  "task_id": "task_001",
+  "description": "示例任务：巡检核心交换机",
+  "devices": [
+    {
+      "host": "192.168.1.1",
+      "port": 23,
+      "username": "admin",
+      "password": "password",
+      "enable_command": "enable",
+      "enable_password": "enablepass",
+      "device_type": "Cisco",
+      "description": "核心交换机-1"
+    },
+    {
+      "host": "192.168.1.2",
+      "port": 23,
+      "username": "admin",
+      "password": "password",
+      "enable_command": "enable",
+      "enable_password": "enablepass",
+      "device_type": "Cisco",
+      "description": "核心交换机-2"
+    }
+  ],
+  "scripts": [
+    "show_version",
+    "check_interfaces"
+  ]
+}

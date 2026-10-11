@@ -1,0 +1,229 @@
+<% content_for :title, '如何编写任务描述 - 需求写法与表格回显解析 | 清巡' %>
+<% content_for :description, '写清"要检查什么、什么算通过、要记录哪些字段"，AI 才能生成正确的脚本。本页给出需求描述的结构、命令与报文的写法，以及表格回显为什么必须按表头定位解析。' %>
+<% content_for :keywords, '任务描述怎么写,自然语言生成脚本,表格回显解析,表头定位,需求描述' %>
+<div class="container py-4">
+  <div class="row mb-4">
+    <div class="col">
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+          <li class="breadcrumb-item"><%= link_to '首页', root_path %></li>
+          <li class="breadcrumb-item"><%= link_to '脚本生成器', scripts_path %></li>
+          <li class="breadcrumb-item active" aria-current="page">如何编写描述</li>
+        </ol>
+      </nav>
+    </div>
+  </div>
+
+  <h2 class="mb-4">如何生成脚本</h2>
+
+  <%# 与《脚本开发全流程》互相补充：本页只讲描述怎么写，流程的全貌在 /guide %>
+  <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2 py-2 small mb-4">
+    <i class="bi bi-signpost-split me-1 text-primary"></i>
+    <span>本页只讲<strong>描述怎么写</strong>。想看从手工日志到上环境验证的完整流程，见</span>
+    <%= link_to '《脚本开发全流程》', guide_path, class: 'fw-semibold' %>
+  </div>
+
+  <div class="row">
+    <!-- 左侧导航 -->
+    <div class="col-lg-3 mb-4">
+      <div class="card border-0 shadow-sm sticky-top" style="top: 20px;">
+        <div class="card-body p-2">
+          <nav class="nav flex-column">
+            <a class="nav-link px-3 rounded active" href="#" data-section="simple">
+              <i class="bi bi-lightning me-2 text-primary"></i>脚本生成
+            </a>
+          </nav>
+          <hr class="my-2">
+          <h6 class="text-muted mb-2 px-2 small">报文格式示例</h6>
+          <nav class="nav flex-column">
+            <a class="nav-link px-3 rounded small" href="#" data-section="example-port">
+              <i class="bi bi-diagram-3 me-2"></i>检查点用法示例
+            </a>
+          </nav>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧内容 -->
+    <div class="col-lg-9">
+      <!-- 脚本生成 -->
+      <div class="content-section" id="simple">
+        <div class="card mb-4">
+          <div class="card-header bg-primary bg-opacity-10 border-primary border-2 py-3">
+            <h5 class="mb-0 fw-medium">
+              <i class="bi bi-lightning me-2 text-primary"></i>
+              脚本生成
+            </h5>
+          </div>
+          <div class="card-body">
+            <p class="text-muted mb-4">适用于大多数场景，如查询设备状态、检查配置、巡检端口等。</p>
+
+            <h6 class="text-muted mb-3">使用步骤</h6>
+            <div class="row g-2 mb-4">
+              <div class="col-md-3">
+                <div class="p-2 bg-light rounded text-center">
+                  <div class="badge bg-primary mb-1">1</div>
+                  <small>输入设备型号</small>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="p-2 bg-light rounded text-center">
+                  <div class="badge bg-primary mb-1">2</div>
+                  <small>编写任务描述</small>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="p-2 bg-light rounded text-center">
+                  <div class="badge bg-primary mb-1">3</div>
+                  <small>自动化生成</small>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="p-2 bg-light rounded text-center">
+                  <div class="badge bg-success mb-1">4</div>
+                  <small>保存脚本</small>
+                </div>
+              </div>
+            </div>
+
+            <h6 class="text-muted mb-2">描述格式</h6>
+            <div class="alert alert-secondary font-monospace small mb-4">
+<pre class="mb-0">命令 display cpu-usage
+报文
+CPU usage in 5 seconds:   20%
+CPU usage in 1 minute:    25%
+CPU usage in 5 minutes:   30%
+输出处理逻辑：关注 5分钟 的平均值，应该小于 80%</pre>
+            </div>
+
+            <div class="text-center">
+              <%= link_to scripts_path, class: 'btn btn-primary' do %>
+                <i class="bi bi-lightning me-2"></i>打开脚本生成器
+              <% end %>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 示例：端口状态查询 -->
+      <div class="content-section d-none" id="example-port">
+        <div class="card mb-4">
+          <div class="card-header bg-light border-bottom py-3">
+            <h5 class="mb-0 fw-medium">
+              <i class="bi bi-diagram-3 me-2 text-muted"></i>
+              示例：端口状态查询
+            </h5>
+          </div>
+          <div class="card-body">
+            <h6 class="text-muted mb-2">描述</h6>
+            <p class="small text-muted mb-3">介绍检查点的用法，可以自定义检查点中 value 的值。</p>
+
+            <h6 class="text-muted mb-2">输入</h6>
+            <div class="alert alert-secondary font-monospace small mb-3">
+<pre class="mb-0">命令 display interface brief
+报文
+Interface   Status  Protocol InErrors OutErrors
+GE0/0       up      up      0        0
+GE0/1       down    down    100      0
+GE0/2       up      up      0        5
+输出处理逻辑：检查点value中输出所有端口列表，包含interface，以及status、protocol字段</pre>
+            </div>
+
+            <h6 class="text-muted mb-2">响应</h6>
+            <div class="alert alert-light font-monospace small mb-0">
+<pre class="mb-0">{
+  "success": true,
+  "status": "all_passed",
+  "checkpoints": [
+    {
+      "name": "检查接口状态",
+      "passed": true,
+      "value": [
+        {"interface": "GE0/0", "status": "up", "protocol": "up"},
+        {"interface": "GE0/1", "status": "down", "protocol": "down"},
+        {"interface": "GE0/2", "status": "up", "protocol": "up"}
+      ]
+    }
+  ]
+}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 报文要求 -->
+      <div class="card mt-4">
+        <div class="card-header bg-light border-bottom py-3">
+          <h5 class="mb-0 fw-medium">
+            <i class="bi bi-exclamation-triangle me-2 text-muted"></i>
+            报文要求
+          </h5>
+        </div>
+        <div class="card-body">
+          <ul class="mb-0 small text-muted">
+            <li><strong>必须提供真实报文（脱敏）</strong>，用于 AI 学习输出格式进行解析</li>
+            <li>报文需修改为非敏感信息，如 IP 改为 10.0.0.1，MAC 改为 00:00:00:00:00:00</li>
+            <li>明确指定关注的数据点，如"关注5分钟的平均值"</li>
+            <li>阈值应符合正常业务场景，如 CPU 使用率"小于80%"表示正常</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const navLinks = document.querySelectorAll('.nav-link[data-section]');
+    const contentSections = document.querySelectorAll('.content-section');
+
+    navLinks.forEach(link => {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        const targetId = this.dataset.section;
+
+        // 切换导航激活状态
+        navLinks.forEach(l => {
+          l.classList.remove('active', 'bg-primary', 'text-white');
+          // 恢复图标颜色
+          const icon = l.querySelector('i');
+          if (icon) {
+            icon.classList.remove('text-white');
+            if (l.dataset.section === 'simple') icon.classList.add('text-primary');
+          }
+        });
+        this.classList.add('active', 'bg-primary', 'text-white');
+        const icon = this.querySelector('i');
+        if (icon) icon.classList.add('text-white');
+
+        // 切换内容区域
+        contentSections.forEach(section => {
+          if (section.id === targetId) {
+            section.classList.remove('d-none');
+          } else {
+            section.classList.add('d-none');
+          }
+        });
+      });
+    });
+
+    // 默认选中「脚本生成」一节
+    document.querySelector('.nav-link[data-section="simple"]').click();
+  });
+</script>
+
+<%# GEO：描述写法是"怎么做"型内容，用 TechArticle 声明主题与权威地址，便于 AI 引擎理解与引用 %>
+<% content_for :head_extra do %>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "如何编写任务描述：需求写法与表格回显解析",
+  "description": "写清要检查什么、什么算通过、要记录哪些字段，AI 才能生成正确的脚本；表格回显要按表头定位解析。",
+  "inLanguage": "zh-CN",
+  "mainEntityOfPage": "<%= canonical_url('/script_generation_help') %>",
+  "author": { "@type": "Organization", "name": "清巡", "url": "<%= canonical_origin %>" },
+  "publisher": { "@type": "Organization", "name": "清巡", "url": "<%= canonical_origin %>" }
+}
+</script>
+<% end %>

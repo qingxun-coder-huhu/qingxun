@@ -1,0 +1,26 @@
+# PostgreSQL Configuration
+#
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  # 连接池与 Puma 线程数**解耦**：等上游 LLM 的那几十秒不再持有连接（见 ExternalWait），
+  # 所以线程数可以远大于池。若仍跟着 RAILS_MAX_THREADS，2 进程 × 50 线程 = 池上限 100，
+  # 正好吃掉 PostgreSQL 的全部 max_connections。
+  pool: <%= ENV.fetch("DATABASE_POOL") { 5 } %>
+  username: <%= ENV.fetch("DATABASE_USERNAME") { "zb" } %>
+  password: <%= ENV.fetch("DATABASE_PASSWORD") { "" } %>
+  host: <%= ENV.fetch("DATABASE_HOST") { "localhost" } %>
+  port: <%= ENV.fetch("DATABASE_PORT") { 5432 } %>
+
+development:
+  <<: *default
+  database: <%= ENV.fetch("DATABASE_NAME") { "qingxun_development" } %>
+
+test:
+  <<: *default
+  database: <%= ENV.fetch("DATABASE_NAME_TEST") { "qingxun_test" } %>
+
+production:
+  <<: *default
+  database: <%= ENV.fetch("DATABASE_NAME_PROD") { "qingxun_production" } %>
+  sslmode: <%= ENV.fetch("DATABASE_SSLMODE") { "prefer" } %>

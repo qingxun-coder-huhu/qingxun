@@ -1,0 +1,4251 @@
+<style>
+  /* 执行日志里会出现"下发命令/收到报文"，报文是多行文本，需保留换行 */
+  #debug-logs { white-space: pre-wrap; word-break: break-word; }
+  /* 全屏查看：克隆进弹框的内容不再受原面板的限高约束 */
+  #fs-body .fs-content { max-height: none !important; overflow: visible !important; margin: 0; white-space: pre-wrap; word-break: break-word; }
+  #fs-body pre.fs-content { white-space: pre-wrap; word-break: break-word; }
+  #fs-body { overflow: auto; }
+  /* 评估详情（结论/问题/建议）默认折叠：箭头与展开内容同一缩进 */
+  details.eval-detail > summary { cursor: pointer; }
+  details.eval-detail[open] > summary { margin-bottom: .25rem; }
+
+  /* ===== 设备型号多选（可输入过滤）=====
+     容器做成输入框的样子：chips 与搜索框同一行、点击整块都聚焦搜索框；
+     下拉绝对定位浮在下方，不把「脚本信息」卡片撑高。 */
+  .device-model-picker { position: relative; }
+  .device-model-control {
+    display: flex; flex-wrap: wrap; gap: .25rem; align-items: center;
+    min-height: calc(1.5em + .75rem + 2px); padding: .25rem .5rem;
+    border: 1px solid #ced4da; border-radius: .375rem; background: #fff; cursor: text;
+  }
+  .device-model-control.is-focused { border-color: #86b7fe; box-shadow: 0 0 0 .25rem rgba(13, 110, 253, .25); }
+  .device-model-chips { display: contents; }
+  .device-model-chip {
+    display: inline-flex; align-items: center; gap: .25rem;
+    background: #e7f1ff; color: #0d6efd; border-radius: .25rem;
+    padding: .1rem .4rem; font-size: .875rem; line-height: 1.4;
+  }
+  .device-model-chip button {
+    border: 0; background: transparent; color: inherit; line-height: 1;
+    padding: 0; font-size: 1rem; cursor: pointer;
+  }
+  .device-model-search { border: 0; outline: 0; flex: 1 1 8rem; min-width: 8rem; padding: .125rem .125rem; }
+  .device-model-dropdown {
+    position: absolute; z-index: 1050; left: 0; right: 0; top: 100%; margin-top: .25rem;
+    max-height: 240px; overflow-y: auto; background: #fff; border: 1px solid #ced4da;
+    border-radius: .375rem; box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .15);
+  }
+  .device-model-option { padding: .375rem .75rem; cursor: pointer; font-size: .9rem; }
+  .device-model-option:hover, .device-model-option.is-active { background: #f1f3f5; }
+  .device-model-empty { padding: .5rem .75rem; color: #6c757d; font-size: .875rem; }
+
+  /* 分支评估结果：悬停有摘要提示，用 cursor: help 提示"可悬停查看" */
+  .branch-result[title] { cursor: help; }
+</style>
+
+
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <!-- 自然语言输入区域 -->
+    <div class="card mb-4">
+      <div class="card-header bg-light border-bottom py-3">
+        <h5 class="mb-0 fw-medium">
+          <i class="bi bi-chat-left-text me-2 text-muted"></i>自然语言描述
+        </h5>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          请输入您希望脚本完成的任务描述。系统将生成对应的 Ruby 脚本。
+          主线与各分支以标签页并列：生成时同一份脚本会在主线与全部分支下分别测试，<strong>全部通过才算通过</strong>。
+          分支请写成与主线同格式的<strong>完整流程描述</strong>：按执行顺序写命令 / 报文 / 处理逻辑，只写该分支实际会执行的步骤，未执行到的命令不用列。
+        </p>
+         <form id="generate-form">
+            <!-- 场景标签页：主线 + 各分支（分支由 JS 注入） -->
+            <ul class="nav nav-tabs align-items-center" id="scenario-tabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active fw-medium" id="scenario-tab-main" data-bs-toggle="tab" data-bs-target="#scenario-pane-main" type="button" role="tab" aria-controls="scenario-pane-main" aria-selected="true">
+                  <i class="bi bi-signpost-split me-1"></i>主线
+                </button>
+              </li>
+              <li class="nav-item ms-auto d-flex align-items-center gap-2 py-1" id="scenario-tab-actions">
+                <span id="branch-empty-hint" class="text-muted small me-1">暂无分支</span>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="add-branch-button">
+                  <i class="bi bi-plus-lg me-1"></i>添加分支
+                </button>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="suggest-branches-button">
+                  <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                  <i class="bi bi-stars me-1"></i>AI建议分支
+                </button>
+                <button type="button" class="btn btn-outline-info btn-sm" id="check-branches-button" data-bs-toggle="tooltip" data-bs-title="检查分支是否与主线矛盾、或比主线更严（超纲）">
+                  <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                  <i class="bi bi-shield-check me-1"></i>检查分支
+                </button>
+                <button type="button" class="btn btn-outline-success btn-sm" id="run-all-scenarios-button"
+                        data-bs-toggle="tooltip" data-bs-title="按主线与各分支的描述逐个生成命令映射并运行（不修改脚本代码）">
+                  <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                  <i class="bi bi-play-circle me-1"></i>运行全部
+                </button>
+              </li>
+            </ul>
+            <div class="tab-content border border-top-0 rounded-bottom p-3 mb-3" id="scenario-tab-content">
+              <div class="tab-pane fade show active" id="scenario-pane-main" role="tabpanel" aria-labelledby="scenario-tab-main">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <label for="user_prompt" class="form-label fw-medium mb-0">任务描述</label>
+                  <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-success btn-sm" id="run-scenario-main"
+                            data-bs-toggle="tooltip" data-bs-title="按当前主线描述生成命令映射并运行脚本（不修改脚本代码）">
+                      <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                      <i class="bi bi-play-fill me-1"></i>运行
+                    </button>
+                    <%= link_to script_generation_help_path, target: '_blank', class: 'btn btn-outline-info btn-sm' do %>
+                      <i class="bi bi-book me-1"></i>如何编写描述
+                    <% end %>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="draft-requirement-button"
+                            data-bs-toggle="tooltip" data-bs-title="粘贴手工操作设备的终端日志，由 AI 整理成需求描述框架">
+                      <i class="bi bi-clipboard-data me-1"></i>从手工日志生成
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#fullscreen-editor-modal">
+                      <i class="bi bi-arrows-fullscreen me-1"></i>全屏编辑
+                    </button>
+                  </div>
+                </div>
+                <textarea class="form-control" id="user_prompt" rows="8" placeholder="请输入自然语言描述..." required></textarea>
+                <div class="form-text text-muted small mt-1">主线描述用于生成脚本代码；分支只作为额外的测试场景。</div>
+
+                <!-- 全屏编辑模态框 -->
+                <div class="modal fade" id="fullscreen-editor-modal" tabindex="-1" aria-labelledby="fullscreen-editor-label" aria-hidden="true">
+                  <div class="modal-dialog modal-fullscreen">
+                    <div class="modal-content">
+                      <div class="modal-header">
+                        <h5 class="modal-title" id="fullscreen-editor-label">全屏编辑任务描述</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body d-flex flex-column">
+                        <textarea class="form-control font-monospace flex-grow-1" id="user_prompt_fullscreen" placeholder="请输入自然语言描述..."></textarea>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-primary" id="apply-fullscreen-content">应用</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 手工操作日志 → 需求描述框架
+                     业务逻辑：日志里天然有逐字的命令与真实回显（需求描述里最难拿到的部分），
+                     由 AI 整理成框架；日志里没有的判据一律留成【待确认#N】占位，用户点候选回填。
+                     隐性知识：日志长度上限来自 ScriptRequirementDraftService::MAX_LOG_LENGTH，
+                     用 data 属性传给前端做计数，避免前后端各写一份数字。 -->
+                <div class="modal fade" id="requirement-draft-modal" tabindex="-1" aria-labelledby="requirement-draft-label" aria-hidden="true">
+                  <!-- 尺寸都要吃饱屏幕，不跟 Bootstrap 的档位：
+                       宽度：xl 档上限只有 1140px，大屏浪费一半；框架与待确认是左右两栏，越宽越好读。
+                       用 min() 自适应——大屏封顶 1800px 避免行长过宽，小屏退化成两侧各留 1rem。
+                       高度：两处都要改，只改一处没用——
+                         a) dialog 的高度是 calc(100% - margin*2)，而 --bs-modal-margin 默认
+                            1.75rem（上下各 28px 白白浪费），压到 0.25rem（上下各 4px）；
+                         b) modal-dialog-scrollable 只给 .modal-content 设了 max-height，内容
+                            并不撑满 dialog：body 仍是内容高度、两栏被卡在 min-height 下限上。
+                            必须显式给 .modal-content 加 height: 100%，body（flex:1）才会吃满，
+                            里面的两栏才会跟着长高。 -->
+                  <div class="modal-dialog modal-xl modal-dialog-scrollable"
+                       style="--bs-modal-margin: 0.25rem; max-width: min(1800px, calc(100vw - 2rem));">
+                    <div class="modal-content" style="height: 100%;">
+                      <div class="modal-header">
+                        <h5 class="modal-title" id="requirement-draft-label">
+                          <i class="bi bi-clipboard-data me-2"></i>从手工操作日志生成需求描述
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                      </div>
+                      <div class="modal-body d-flex flex-column">
+                        <div id="draft-alert" class="alert d-none py-2 small" role="alert"></div>
+
+                        <div id="draft-inputs">
+                          <div class="mb-3">
+                            <label for="draft-goal" class="form-label fw-medium">目标</label>
+                            <textarea class="form-control" id="draft-goal" rows="2"
+                                      placeholder="一句话说明要检查什么，例如：核对两块单板的配置文件是否齐全"></textarea>
+                          </div>
+
+                          <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                              <label for="draft-log" class="form-label fw-medium mb-0">手工操作日志</label>
+                              <span class="small text-muted">
+                                <span id="draft-log-count">0</span> / <%= ScriptRequirementDraftService::MAX_LOG_LENGTH %> 字符
+                              </span>
+                            </div>
+                            <textarea class="form-control font-monospace" id="draft-log" rows="10"
+                                      data-max-log-length="<%= ScriptRequirementDraftService::MAX_LOG_LENGTH %>"
+                                      placeholder="把手工操作设备时的终端记录整段粘贴进来（命令与回显）"></textarea>
+                            <div class="form-text small">
+                              请先删除密码、IP、SNMP 社区串等敏感信息（日志会随本次请求发送给模型）。
+                              重复执行、敲错重来之类的噪音由 AI 清洗，不必手工整理。
+                            </div>
+                          </div>
+
+                          <!-- 生成按钮跟着它作用的日志框走：原来在 modal-footer 里，
+                               footer 贴着弹窗底边，日志框在这之上，点一次要从上滚到下。 -->
+                          <div class="d-flex justify-content-end">
+                            <button type="button" class="btn btn-sm btn-primary" id="draft-generate-button">
+                              <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                              <i class="bi bi-stars me-1"></i>生成框架
+                            </button>
+                          </div>
+                        </div>
+
+                        <!-- 生成后输入区收成一行摘要，把高度让给框架与待确认清单
+                             （否则日志框会占掉 modal body 大半高度，结果区被顶到视口外） -->
+                        <div id="draft-inputs-summary" class="alert alert-light border py-2 small d-none">
+                          <span id="draft-inputs-summary-text"></span>
+                          <button type="button" class="btn btn-sm btn-link p-0 ms-2 align-baseline"
+                                  id="draft-inputs-expand">展开修改</button>
+                        </div>
+
+                        <!-- 「应用到主线描述」的兜底位置：正常情况它贴在待确认列表下方
+                             （见右栏的 #draft-apply-slot），但整份框架没有待确认项时右栏会
+                             整个收起，按钮就无处可放 —— 那时由 JS 挪回这里，免得连按钮一起藏了。 -->
+                        <div id="draft-apply-fallback" class="d-flex justify-content-end"></div>
+
+                        <!-- 结果区用 flex 撑满 modal body 的剩余高度，两栏各自独立滚动。
+                             隐性知识（前两版都栽在这里）：
+                             1) 早先框架与待确认上下叠放、共用 body 的同一个滚动条，待确认一多，
+                                往下翻清单就把上面的框架（代码）顶出视野，没法边看边填；
+                             2) 改用固定 vh 值给高度，要么溢出（body 又出现滚动条）要么被压得
+                                太矮看不清。所以这里不写死高度：结果区 flex-grow-1 吃掉剩余空间，
+                                列内的 textarea / 清单再用 flex-grow-1 + min-height:0 填满列高。 -->
+                        <div id="draft-result" class="d-none flex-grow-1" style="min-height: 0;">
+                          <div class="d-flex flex-column h-100" style="min-height: 0;">
+                            <hr class="mt-0">
+                            <div id="draft-notes" class="alert alert-info py-2 small d-none"></div>
+
+                            <div class="row g-3 flex-grow-1" style="min-height: 0;">
+                              <div id="draft-preview-col" class="col-lg-7 d-flex flex-column" style="min-height: 0;">
+                                <label for="draft-preview" class="form-label fw-medium">需求描述框架（可编辑）</label>
+                                <textarea class="form-control font-monospace flex-grow-1" id="draft-preview"
+                                          style="min-height: 180px;"></textarea>
+                              </div>
+
+                              <div id="draft-questions-col" class="col-lg-5 d-flex flex-column d-none" style="min-height: 0;">
+                                <div class="fw-medium mb-1">
+                                  待确认 <span class="text-muted small">（点候选即填入左侧框架，或自己写）</span>
+                                </div>
+                                <div id="draft-questions-wrap" class="flex-grow-1"
+                                     style="min-height: 180px; overflow-y: auto;">
+                                  <div id="draft-questions"></div>
+                                </div>
+                                <!-- 「应用到主线描述」贴在清单下方：清单自己滚动，按钮不跟着滚，
+                                     用户填完最后一项正好在这里点应用。没有待确认项时这个槽位
+                                     随右栏一起收起，按钮由 draftRenderQuestions 挪到兜底位置。 -->
+                                <div id="draft-apply-slot" class="d-flex justify-content-end mt-2 flex-shrink-0">
+                                  <button type="button" class="btn btn-sm btn-success d-none" id="draft-apply-button">
+                                    <i class="bi bi-check2 me-1"></i>应用到主线描述
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- 只留关闭：两个操作按钮已移到各自作用的日志框下方（见 #draft-inputs
+                           与 #draft-inputs-summary 两处）。 -->
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- 点「自动化生成」但代码框里已有脚本时的确认：重新生成 vs 改成微调 -->
+              <div class="modal fade" id="regenerate-confirm-modal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h5 class="modal-title"><i class="bi bi-exclamation-circle me-2 text-warning"></i>脚本已存在</h5>
+                      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                    </div>
+                    <div class="modal-body">
+                      <p class="mb-2">当前代码框里已经有生成好的脚本，请确认这次要怎么做：</p>
+                      <ul class="mb-0 small text-muted">
+                        <li><strong>重新生成</strong>：按当前主线/分支描述整体重做一版（覆盖现有代码）</li>
+                        <li><strong>改成微调</strong>：在现有代码基础上按描述改动（改动更小，保留已验证的部分）</li>
+                      </ul>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                      <button type="button" class="btn btn-sm btn-outline-success" id="regenerate-confirm-refine">
+                        <i class="bi bi-sliders me-1"></i>改成微调
+                      </button>
+                      <button type="button" class="btn btn-sm btn-success" id="regenerate-confirm-regenerate">
+                        <i class="bi bi-magic me-1"></i>重新生成
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 分支标签页内容由 JS 注入 -->
+            </div>
+
+           <div class="d-flex flex-wrap gap-2 mb-3">
+             <button type="button" class="btn btn-success" id="auto-generate-button">
+               <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+               <i class="bi bi-magic me-1"></i>自动化生成
+             </button>
+             <!-- 提示挂在外层 span 上：按钮 disabled 时 Bootstrap tooltip 不弹，只有原生 title 可靠 -->
+             <span id="refine-button-wrap" title="需要有已生成的脚本才能微调（可先点「自动化生成」）">
+               <button type="button" class="btn btn-outline-success" id="refine-button" disabled>
+                 <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                 <i class="bi bi-sliders me-1"></i>微调
+               </button>
+             </span>
+
+            <button type="button" class="btn btn-primary" id="save-button" disabled data-bs-toggle="tooltip" data-bs-title="保存当前信息到数据库">
+              <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+              <i class="bi bi-save me-1"></i><span id="save-button-label">保存</span>
+            </button>
+            <button type="button" class="btn btn-outline-success" id="publish-button" disabled data-bs-toggle="tooltip" data-bs-title="调试完成表示模拟测试阶段完成，可以上测试环境测试">
+              <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+              <i class="bi bi-check-circle me-1"></i><span id="publish-button-label">调试完成</span>
+            </button>
+            <%# 版本历史：生成/微调/自动保存/手动保存/调试完成/回滚各留一条，可查看与回滚。
+                按钮常开：灰着的按钮会被当成"历史没了"，点开由弹框说明当前脚本有没有版本 %>
+            <button type="button" class="btn btn-outline-secondary" id="history-button"
+                    data-bs-toggle="tooltip" data-bs-title="查看历史版本并回滚">
+              <i class="bi bi-clock-history me-1"></i>历史
+            </button>
+            <%# 当前脚本调试状态：调试中 / 调试完成 %>
+            <span id="script-status-badge" class="badge text-bg-warning align-self-center" title="脚本当前调试状态">调试中</span>
+            <%# 自动保存状态：成功显示时间、失败显示原因。自动保存失败不阻塞使用 %>
+            <span id="autosave-status" class="small text-muted align-self-center"></span>
+           </div>
+           <div class="form-text text-muted small">
+             提示："自动化生成"会自动测试和评估测试结果，完成后请人工确认并复核。
+             <br>
+             <span class="text-muted">"调试完成"表示您认可了模拟测试阶段结果，可以上测试环境测试。</span>
+             <br>
+             <strong class="text-primary"><i class="bi bi-lightbulb"></i> 建议：</strong>在任务描述中建议第一步先检查设备版本，避免版本差异导致执行失败。
+           </div>
+
+
+          <!-- 自动化流程进度区域 -->
+          <div id="auto-progress" class="mt-4 d-none">
+            <div class="card bg-light border-0">
+              <div class="card-body py-3">
+                <div class="d-flex align-items-center">
+                  <div class="spinner-border spinner-border-sm text-primary me-3" role="status" id="auto-spinner">
+                    <span class="visually-hidden">Loading...</span>
+                  </div>
+                  <span id="auto-status-text">准备中...</span>
+                </div>
+                <div class="progress mt-3" style="height: 4px;">
+                  <div class="progress-bar" role="progressbar" id="auto-progress-bar" style="width: 0%"></div>
+                </div>
+                <div id="auto-attempt-info" class="small text-muted mt-2"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 评估结果区域 -->
+          <div id="evaluation-result" class="mt-4 d-none">
+            <div class="card border-success border-1">
+              <div class="card-header bg-success bg-opacity-10 text-success py-2 border-0">
+                <i class="bi bi-check-circle me-1"></i><span id="eval-header">评估结果</span>
+              </div>
+              <div class="card-body py-3">
+                <div id="eval-content"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 最终建议区域 -->
+          <div id="final-suggestion" class="mt-4 d-none">
+            <div class="card border-warning border-1">
+              <div class="card-header bg-warning bg-opacity-10 text-warning py-2 border-0">
+                <i class="bi bi-lightbulb me-1"></i>下一步建议
+              </div>
+              <div class="card-body py-3">
+                <p id="suggestion-text" class="mb-0"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 需要用户确认的问题：脚本与平台都拿不到的信息，必须回抛给用户，不能自己编 -->
+          <div id="user-questions" class="mt-4 d-none">
+            <div class="card border-info border-1">
+              <div class="card-header bg-info bg-opacity-10 text-info py-2 border-0">
+                <i class="bi bi-question-circle me-1"></i>需要您确认
+              </div>
+              <div class="card-body py-3">
+                <p class="small text-muted mb-2">以下信息脚本与平台都无法获取，请确认后重新生成（不要让我们替你猜）：</p>
+                <ul id="user-questions-list" class="mb-0 small"></ul>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- AI 建议分支弹框 -->
+    <div class="modal fade" id="branch-suggestion-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-stars me-1"></i>AI 建议分支</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted small mb-4">
+              可直接编辑名称与描述，点「采纳此分支」把它加入分支标签页。
+              描述格式同主线：命令 / 报文 / 处理逻辑，只写该分支实际会执行的步骤。
+              建议会先做一致性检查，超纲或与主线矛盾的建议会被自动丢弃。
+              想覆盖某个特定场景，点下方「自定义」按你的描述生成。
+            </p>
+            <div id="branch-suggestion-dropped" class="d-none"></div>
+            <div id="branch-suggestion-list"></div>
+          </div>
+          <%# 自定义场景输入区：点「自定义」展开。默认隐藏，生成成功后收起，输入内容保留以便再次修改 %>
+          <div id="custom-branch-panel" class="d-none border-top bg-light px-3 py-3">
+            <label for="custom-branch-input" class="form-label fw-medium small mb-1">自定义分支场景</label>
+            <textarea id="custom-branch-input" class="form-control" rows="3"
+                      placeholder="描述你想覆盖的场景，例如：设备返回 %Error: Unrecognized command；可写一个场景，也可换行写多个，AI 会据此生成一条或多条分支"></textarea>
+            <div class="d-flex justify-content-between align-items-center mt-2 gap-2">
+              <span class="text-muted small">只写场景即可，不用写命令/报文格式，AI 会补全成完整流程。</span>
+              <span class="d-flex gap-2 text-nowrap">
+                <button type="button" class="btn btn-sm btn-secondary" id="custom-branch-cancel">取消</button>
+                <button type="button" class="btn btn-sm btn-primary" id="custom-branch-generate">
+                  <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                  生成分支
+                </button>
+              </span>
+            </div>
+          </div>
+          <div class="modal-footer justify-content-between">
+            <span class="text-muted small" id="branch-suggestion-hint">未采纳的建议可继续编辑。</span>
+            <span class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-primary" id="regenerate-branches-button">
+                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                <i class="bi bi-arrow-repeat me-1"></i>换一批
+              </button>
+              <button type="button" class="btn btn-outline-primary" id="custom-branch-button">
+                <i class="bi bi-pencil-square me-1"></i>自定义
+              </button>
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+              <button type="button" class="btn btn-primary" id="adopt-all-branches-button">全部采纳</button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分支一致性检查结果弹框 -->
+    <div class="modal fade" id="branch-check-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-shield-check me-1"></i>分支一致性检查</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted small mb-4">
+              检查每个分支是否只触发主线已声明的规则。⚠️ 超纲＝分支新增了主线未声明的判定/失败处理/终止条件；
+              ❌ 矛盾＝分支结论与主线冲突。此检查仅供参考，不影响生成。
+            </p>
+            <div id="branch-check-list"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 版本历史：左列表 / 右内容预览 + 回滚 -->
+    <div class="modal fade" id="version-history-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-clock-history me-1"></i>版本历史</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+          </div>
+          <div class="modal-body">
+            <div class="row g-3">
+              <div class="col-lg-5">
+                <div class="small text-muted mb-2" id="version-history-summary">加载中…</div>
+                <div class="list-group" id="version-history-list"></div>
+              </div>
+              <div class="col-lg-7">
+                <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                  <div class="fw-medium" id="version-detail-title">选择一个版本查看内容</div>
+                  <button type="button" class="btn btn-sm btn-outline-warning d-none" id="version-rollback-button">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>回滚到此版本
+                  </button>
+                </div>
+                <div class="small text-muted mb-1" id="version-detail-meta"></div>
+                <%# 与上一版的差异：版本由"描述"驱动，所以先看描述改了什么（分支描述是重点）。
+                    内容由 renderVersionDiff 渲染；首版显示"没有可对比的上一版" %>
+                <div class="border rounded p-2 mb-2 bg-light bg-opacity-25" id="version-detail-diff"></div>
+                <%# 主线描述是要先看的东西（这一版"要做什么"），直接展开；
+                    代码往往只想扫一眼、又长，默认折叠 %>
+                <div class="small text-muted mb-1">主线描述（生成这个版本时用的需求）</div>
+                <pre class="border rounded p-2 mb-2" style="max-height: 30vh; overflow: auto;"><code id="version-detail-prompt"></code></pre>
+                <details>
+                  <summary class="small text-muted">脚本代码（点击展开）</summary>
+                  <pre class="border rounded p-2 mt-1 mb-0" style="max-height: 50vh; overflow: auto;"><code class="language-ruby" id="version-detail-code"></code></pre>
+                </details>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <span class="small text-muted me-auto">
+              回滚会把该版本的内容写回当前脚本，并记一条"回滚"版本；当前脚本状态会退回「调试中」。
+            </span>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 保存后的提示气泡：箭头指向「调试完成」按钮，5 秒自动消失 -->
+    <div id="transient-toast" class="d-none" style="position: fixed; z-index: 1080;">
+      <div class="rounded shadow-lg py-4 px-5 fs-4 fw-semibold text-bg-primary" id="transient-toast-body" style="max-width: 60vw; white-space: normal;"></div>
+      <div id="transient-toast-arrow" style="position: absolute; width: 0; height: 0;"></div>
+    </div>
+
+    <!-- 生成的脚本与映射区域 -->
+    <div class="card mb-4">
+      <div class="card-header bg-light border-bottom py-3">
+        <ul class="nav nav-tabs card-header-tabs border-0" id="script-mapping-tabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active fw-medium text-dark" id="script-tab" data-bs-toggle="tab" data-bs-target="#script-pane" type="button" role="tab" aria-controls="script-pane" aria-selected="true" style="color: #1e293b; background: #f8fafc;">
+              <i class="bi bi-code-slash me-1"></i>生成的脚本
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link fw-medium text-dark" id="mapping-tab" data-bs-toggle="tab" data-bs-target="#mapping-pane" type="button" role="tab" aria-controls="mapping-pane" aria-selected="false" style="color: #1e293b; background: #e2e8f0;">
+              <i class="bi bi-list-check me-1"></i>命令映射
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div class="card-body">
+        <div class="tab-content" id="script-mapping-content">
+          <div class="tab-pane fade show active" id="script-pane" role="tabpanel" aria-labelledby="script-tab" tabindex="0">
+
+            <div id="script-view">
+              <pre class="m-0"><code class="language-ruby" id="generated-code"># 生成的脚本将显示在这里</code></pre>
+            </div>
+            <div id="script-edit" class="d-none">
+              <textarea class="form-control font-monospace" id="script-edit-textarea" rows="20"></textarea>
+            </div>
+          </div>
+          <div class="tab-pane fade" id="mapping-pane" role="tabpanel" aria-labelledby="mapping-tab" tabindex="0">
+
+            <div id="mapping-view">
+              <pre class="m-0"><code class="language-json" id="generated-mapping"># 生成的映射将显示在这里</code></pre>
+            </div>
+            <div id="mapping-edit" class="d-none">
+              <textarea class="form-control font-monospace" id="mapping-edit-textarea" rows="20"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+       <div class="card-footer border-0 bg-transparent py-2">
+
+         <input type="hidden" id="command-mapping-filename" value="">
+         <input type="hidden" id="command-mapping-content" value="">
+         <%# 脚本唯一标识：服务端在页面初始化时确定（新脚本新生成、老脚本沿用），
+             生成时作为类名后缀、保存时作为定位依据 %>
+         <input type="hidden" id="script-uid" value="<%= @script_uid %>">
+       </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <!-- 脚本基本信息 -->
+    <div class="card mb-4">
+      <div class="card-header bg-light border-bottom py-3">
+        <h5 class="mb-0 fw-medium">
+          <i class="bi bi-info-circle me-2 text-muted"></i>脚本信息
+        </h5>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          <i class="bi bi-lightbulb me-1"></i>脚本名称和描述可由 AI 根据任务描述内容自动生成，也可手动填写。
+        </p>
+        <div class="mb-3">
+          <label for="device-model-search" class="form-label fw-medium">支持的设备型号</label>
+          <%# 真实值仍是逗号分隔的字符串：保存 / 加载 / 版本回滚 / 自动保存的既有 JS 都读
+              #device_models.value。这里保留它作为隐藏输入，可视化多选只负责把选择结果写回它，
+              从而不必改动那些既有逻辑（它们不知道控件长什么样）。 %>
+          <input type="hidden" id="device_models">
+          <div class="device-model-picker" id="device-model-picker">
+            <div class="device-model-control" id="device-model-control">
+              <span class="device-model-chips" id="device-model-chips"></span>
+              <input type="text" id="device-model-search" class="device-model-search"
+                     placeholder="输入过滤，回车添加" autocomplete="off" role="combobox"
+                     aria-controls="device-model-dropdown" aria-expanded="false">
+            </div>
+            <div class="device-model-dropdown d-none" id="device-model-dropdown" role="listbox"></div>
+          </div>
+          <div class="form-text text-muted small">
+            用于生成任务时自动匹配：从下拉多选已维护的型号，也可直接输入后回车新增。
+            <% if logged_in? %>
+              <a href="<%= device_models_path %>" target="_blank" rel="noopener">管理型号清单</a>。
+            <% end %>
+            比如 Cisco Catalyst 2960、Huawei S5735、H3C S5120。
+          </div>
+          <%# 候选型号清单（按名称排序，服务端已排好）。用 json_escape 防止型号名带 </script> 逃逸；
+              必须 raw 包一层，否则 HTML 转义会把 JSON 里的引号变成 &quot; 让 JSON.parse 失败。 %>
+          <script type="application/json" id="device-model-options-data"><%= raw(json_escape(@device_model_options.to_json)) %></script>
+        </div>
+        <div class="mb-3">
+          <label for="script_name" class="form-label fw-medium">脚本名称</label>
+          <input type="text" class="form-control" id="script_name" placeholder="例如：检查设备版本" required>
+        </div>
+        <div class="mb-0">
+          <label for="script_intro" class="form-label fw-medium">脚本描述</label>
+          <textarea class="form-control" id="script_intro" rows="2" placeholder="简短描述脚本的功能和用途"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 调试输出区域 -->
+    <div class="card mb-4">
+      <div class="card-header bg-light border-bottom py-3">
+        <h5 class="mb-0 fw-medium">
+          <i class="bi bi-bug me-2 text-muted"></i>调试输出
+        </h5>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-4">
+          点击"调试"按钮将在沙盒中执行生成的脚本，并连接至模拟设备（FakeTelnetServer）。执行结果和日志将显示在下方。
+        </p>
+        <div class="alert alert-info d-none border-0" id="debug-status">
+          <i class="bi bi-info-circle me-1"></i><span id="status-text">准备就绪</span>
+        </div>
+        <div class="mb-4">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label class="form-label fw-medium small text-muted mb-0">执行日志</label>
+            <button type="button" id="fs-logs-btn" class="btn btn-sm btn-outline-secondary py-0" title="全屏查看执行日志">
+              <i class="bi bi-arrows-fullscreen me-1"></i>全屏
+            </button>
+          </div>
+          <div class="border rounded bg-light p-3" style="max-height: 300px; overflow-y: auto;" id="debug-logs">
+            <div class="text-muted font-monospace small">暂无日志</div>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label class="form-label fw-medium small text-muted mb-0">返回结果</label>
+            <button type="button" id="fs-result-btn" class="btn btn-sm btn-outline-secondary py-0" title="全屏查看返回结果">
+              <i class="bi bi-arrows-fullscreen me-1"></i>全屏
+            </button>
+          </div>
+          <pre class="border rounded bg-light p-3" style="max-height: 200px; overflow-y: auto;" id="debug-result">暂无结果</pre>
+        </div>
+        <div class="alert alert-danger d-none border-0" id="debug-error">
+          <i class="bi bi-exclamation-triangle me-1"></i><strong>错误：</strong><span id="error-message"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 全屏查看弹框：承载"执行日志/返回结果"的完整内容，内容随原面板实时同步 -->
+    <div class="modal fade" id="fs-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+          <div class="modal-header py-2">
+            <h5 class="modal-title" id="fs-title">全屏查看</h5>
+            <div class="d-flex align-items-center gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="fs-copy-btn">
+                <i class="bi bi-clipboard me-1"></i>复制
+              </button>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+          </div>
+          <div class="modal-body" id="fs-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 使用说明 -->
+    <div class="card">
+      <div class="card-header bg-light border-bottom py-3">
+        <h5 class="mb-0 fw-medium">
+          <i class="bi bi-question-circle me-2 text-muted"></i>使用说明
+        </h5>
+      </div>
+      <div class="card-body">
+        <ul class="small text-muted mb-0">
+          <li class="mb-2">调试环境使用您提供的命令、报文模拟网络设备来测试脚本。</li>
+          <li>涉及同型号不同版本的差异，如果逻辑简单可以在一个脚本中开发，逻辑复杂建议开发不同脚本，并在脚本中按照版本执行不同逻辑</li>
+        </ul>
+        <hr class="my-3">
+        <p class="mb-0 small text-muted">
+          <i class="bi bi-lightbulb me-1"></i>提示：如果生成结果不理想，请尝试更详细的描述。
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<% if @debugging_script %>
+<script id="debugging-script-data" type="application/json">
+<%=
+  script_data = @debugging_script.as_json(only: [:id, :script_uid, :publish_status, :name, :description, :code, :initial_prompt, :device_models, :command_mapping, :branch_scenarios])
+  if @latest_command_mapping
+    script_data[:sandbox_debug_log] = @latest_command_mapping.sandbox_debug_log
+    script_data[:debug_execution_result] = @latest_command_mapping.debug_execution_result
+  end
+  raw(script_data.to_json)
+%>
+</script>
+<% end %>
+
+<% if @transferred_description %>
+<script id="transferred-data" type="application/json">
+<%= raw({ description: @transferred_description }.to_json) %>
+</script>
+<% end %>
+
+<%# 客户端转交来的日志与要求：只在这一步进页面（服务端已删除该行）。
+    用 json_escape 而不是裸 to_json：内容来自设备回显，用户可控，不能让它带 </script> 出去。 %>
+<% if @draft_prefill %>
+<%# 首页 Hero 表单 POST 交过来的目标与日志：只用于这一次渲染，不落任何存储 ——%>
+<script id="draft-prefill" type="application/json"><%= raw(json_escape(@draft_prefill.to_json)) %></script>
+<% end %>
+
+<!-- ============================================================
+     开源版：LLM Key 由服务端配置（config/qingxun.yml）维护，
+     前端不再持有或发送任何 Key。这里提供一个最小的 LlmKeyStore shim，
+     让生成页既有的「必须先有 Key」守卫得以通过；请求也不再携带 X-LLM-Api-Key。
+     ============================================================ -->
+<script>
+  window.LlmKeyStore = {
+    isSupported: function () { return true; },
+    unsupportedReason: function () { return ''; },
+    // 返回一个非空占位值，仅用于通过前端的非空校验；服务端不会使用它。
+    loadKey: function () { return Promise.resolve('server-configured'); },
+    load: function () { return Promise.resolve({}); },
+    loadClientCode: function () { return Promise.resolve(null); },
+    save: function () { return Promise.resolve(); }
+  };
+</script>
+
+<script>
+  // 页面加载完成后初始化
+  document.addEventListener('DOMContentLoaded', function() {
+    // 优先从服务器传递的变量中获取 description，其次从 URL 参数获取
+    let description = null;
+
+    // 尝试从服务器传递的数据获取
+    const transferredDataEl = document.getElementById('transferred-data');
+    if (transferredDataEl) {
+      try {
+        const transferredData = JSON.parse(transferredDataEl.textContent);
+        description = transferredData.description;
+      } catch (e) {
+        console.error('解析传输数据失败:', e);
+      }
+    }
+
+    // 如果没有从服务器获取到，尝试从 URL 参数获取（向后兼容）
+    if (!description) {
+      const urlParams = new URLSearchParams(window.location.search);
+      description = urlParams.get('description');
+      if (description) {
+        description = decodeURIComponent(description);
+      }
+    }
+
+    // 如果有 description，填充到文本框
+    if (description) {
+      const userPromptTextarea = document.getElementById('user_prompt');
+      if (userPromptTextarea) {
+        userPromptTextarea.value = description;
+      }
+    }
+
+    // 初始化代码高亮
+    hljs.highlightAll();
+
+    // 初始化 Bootstrap tooltips
+    const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+    const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+
+    // ==== 支持的设备型号：可输入过滤的多选 ====
+    //
+    // 业务逻辑：候选来自用户维护的型号清单（服务端注入 #device-model-options-data，已排序）。
+    //
+    // 隐性知识：
+    //   1. 真实值仍写回隐藏的 #device_models（逗号分隔）——保存、加载、版本回滚、自动保存的
+    //      既有 JS 都读它，可视化控件不应逼着它们改逻辑。
+    //   2. **允许新增清单里没有的型号**：本页匿名也可用，而且用户可能还没来得及维护清单，
+    //      不能因为没有候选就把人卡住（「调试完成」时仍由既有 JS 校验至少有值）。
+    //   3. 选择变化时对隐藏输入派发 input 事件，复用既有的自动保存防抖。
+    (function initDeviceModelPicker() {
+      const hidden = document.getElementById('device_models');
+      const picker = document.getElementById('device-model-picker');
+      if (!hidden || !picker) { return; }
+
+      const control = document.getElementById('device-model-control');
+      const chipsEl = document.getElementById('device-model-chips');
+      const searchEl = document.getElementById('device-model-search');
+      const dropdownEl = document.getElementById('device-model-dropdown');
+      const optionsDataEl = document.getElementById('device-model-options-data');
+
+      let allOptions = [];
+      if (optionsDataEl) {
+        try { allOptions = JSON.parse(optionsDataEl.textContent) || []; } catch (e) { allOptions = []; }
+      }
+      // 服务端已按名称排好序，这里再排一次兜住"候选另有来源"的情况，保证默认排序稳定。
+      allOptions.sort(function (a, b) { return String(a).toLowerCase().localeCompare(String(b).toLowerCase()); });
+
+      let selected = [];
+      let filtered = [];
+      let activeIndex = -1;
+
+      const normalize = function (v) { return (v == null ? '' : String(v)).trim(); };
+      const parseValue = function (raw) { return normalize(raw).split(',').map(normalize).filter(Boolean); };
+      const serialize = function () { return selected.join(', '); };
+      const contains = function (list, value) {
+        return list.some(function (item) { return String(item).toLowerCase() === String(value).toLowerCase(); });
+      };
+
+      function renderChips() {
+        chipsEl.innerHTML = '';
+        selected.forEach(function (value) {
+          const chip = document.createElement('span');
+          chip.className = 'device-model-chip';
+          const label = document.createElement('span');
+          label.textContent = value;
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.setAttribute('aria-label', '移除 ' + value);
+          remove.innerHTML = '&times;';
+          remove.addEventListener('click', function (event) {
+            event.stopPropagation();
+            selected = selected.filter(function (item) { return item !== value; });
+            commit(true);
+          });
+          chip.appendChild(label);
+          chip.appendChild(remove);
+          chipsEl.appendChild(chip);
+        });
+      }
+
+      // 把当前选中写回隐藏输入；notify=true 时派发 input 事件，触发自动保存
+      function commit(notify) {
+        hidden.value = serialize();
+        renderChips();
+        if (notify) { hidden.dispatchEvent(new Event('input', { bubbles: true })); }
+      }
+
+      function addValue(value) {
+        const text = normalize(value);
+        if (!text) { return; }
+        if (!contains(selected, text)) {
+          selected.push(text);
+          commit(true);
+        }
+        searchEl.value = '';
+        closeDropdown();
+        searchEl.focus();
+      }
+
+      function removeLast() {
+        if (selected.length === 0) { return; }
+        selected.pop();
+        commit(true);
+      }
+
+      function renderDropdown() {
+        const query = normalize(searchEl.value);
+        const lowerQuery = query.toLowerCase();
+        filtered = allOptions.filter(function (option) {
+          if (contains(selected, option)) { return false; }
+          return lowerQuery === '' || String(option).toLowerCase().indexOf(lowerQuery) !== -1;
+        });
+
+        // 当前输入能否作为一个新值（非空、未选、且清单里没有完全同名的）
+        const canCreate = query !== '' && !contains(selected, query) && !contains(allOptions, query);
+
+        dropdownEl.innerHTML = '';
+        if (filtered.length === 0 && !canCreate) {
+          const empty = document.createElement('div');
+          empty.className = 'device-model-empty';
+          empty.textContent = allOptions.length === 0
+            ? '还没有维护型号清单，直接输入后回车即可添加'
+            : '没有匹配的型号，输入后回车可新增';
+          dropdownEl.appendChild(empty);
+        } else {
+          filtered.forEach(function (option, index) {
+            const item = document.createElement('div');
+            item.className = 'device-model-option' + (index === activeIndex ? ' is-active' : '');
+            item.setAttribute('role', 'option');
+            item.textContent = option;
+            // 用 mousedown 而非 click：click 前 input 会先失焦，下拉已被关掉
+            item.addEventListener('mousedown', function (event) {
+              event.preventDefault();
+              addValue(option);
+            });
+            dropdownEl.appendChild(item);
+          });
+
+          if (canCreate) {
+            const create = document.createElement('div');
+            create.className = 'device-model-option';
+            create.setAttribute('role', 'option');
+            create.appendChild(document.createTextNode('新增：'));
+            const strong = document.createElement('strong');
+            strong.textContent = query;
+            create.appendChild(strong);
+            create.addEventListener('mousedown', function (event) {
+              event.preventDefault();
+              addValue(query);
+            });
+            dropdownEl.appendChild(create);
+          }
+        }
+
+        dropdownEl.classList.remove('d-none');
+        searchEl.setAttribute('aria-expanded', 'true');
+      }
+
+      function closeDropdown() {
+        dropdownEl.classList.add('d-none');
+        dropdownEl.innerHTML = '';
+        activeIndex = -1;
+        searchEl.setAttribute('aria-expanded', 'false');
+      }
+
+      searchEl.addEventListener('input', function () { activeIndex = -1; renderDropdown(); });
+      searchEl.addEventListener('focus', function () {
+        control.classList.add('is-focused');
+        renderDropdown();
+      });
+      searchEl.addEventListener('blur', function () {
+        control.classList.remove('is-focused');
+        // 稍等再关：让候选的 mousedown 先处理完，否则点候选会先触发关闭
+        setTimeout(closeDropdown, 120);
+      });
+
+      searchEl.addEventListener('keydown', function (event) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          if (dropdownEl.classList.contains('d-none')) { renderDropdown(); return; }
+          activeIndex = Math.min(activeIndex + 1, filtered.length - 1);
+          renderDropdown();
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          activeIndex = Math.max(activeIndex - 1, -1);
+          renderDropdown();
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+          if (activeIndex >= 0 && filtered[activeIndex]) {
+            addValue(filtered[activeIndex]);
+          } else if (normalize(searchEl.value)) {
+            addValue(searchEl.value);
+          }
+        } else if (event.key === 'Backspace' && searchEl.value === '') {
+          removeLast();
+        } else if (event.key === 'Escape') {
+          closeDropdown();
+        }
+      });
+
+      // 点整块容器都聚焦到搜索框
+      control.addEventListener('click', function () { searchEl.focus(); });
+
+      // 对外接口：外部代码直接改了隐藏输入（加载脚本 / 版本回滚）后调用它重建 chips。
+      // notify 默认 false —— 那些路径紧接着会把自动保存基线对齐，不应再触发一次保存。
+      window.DeviceModelPicker = {
+        syncFromInput: function (notify) {
+          selected = parseValue(hidden.value);
+          commit(!!notify);
+        },
+        getValues: function () { return selected.slice(); }
+      };
+
+      selected = parseValue(hidden.value);
+      renderChips();
+    })();
+
+    // 生成表单提交
+    const generateForm = document.getElementById('generate-form');
+    const userPromptTextarea = document.getElementById('user_prompt');
+    const generatedCode = document.getElementById('generated-code');
+    const saveButton = document.getElementById('save-button');
+    const publishButton = document.getElementById('publish-button');
+    const refineButton = document.getElementById('refine-button');
+    // 自动保存要往库里写，需要有本地操作员归属；
+    // 免注册流程里用户领码后即为 true（onboarding#enter 会 login_user）。
+    const LOGGED_IN = <%= logged_in? ? 'true' : 'false' %>;
+    const scriptIntro = document.getElementById('script_intro');
+    const debugLogs = document.getElementById('debug-logs');
+    const debugResult = document.getElementById('debug-result');
+    const debugError = document.getElementById('debug-error');
+    const debugStatus = document.getElementById('debug-status');
+    const statusText = document.getElementById('status-text');
+
+    // ===== 场景标签页：主线 + 分支 =====
+    // 主线与分支以标签页并列；分支标签与面板都动态注入，DOM 即数据源。
+    // 生成时读取全部分支面板提交；生成后按索引把测试结果回填到对应标签页。
+    const scenarioTabs = document.getElementById('scenario-tabs');
+    const scenarioTabContent = document.getElementById('scenario-tab-content');
+    const branchTabActions = document.getElementById('scenario-tab-actions');
+    const branchEmptyHint = document.getElementById('branch-empty-hint');
+    // 最近一次生成返回的分支场景（含命令映射与通过与否），保存时与当前描述合并提交
+    let lastGeneratedBranchScenarios = [];
+    // 自动保存 / 版本历史用到的元素与常量。
+    //
+    // 隐性知识（实测踩过，而且是同一个坑踩了两次）：`loadDebuggingScript()` 在**初始化阶段**
+    // 就会调用 `enableHistoryButton()`，它读的是下面这个 `historyButton` —— 这些声明原来写在
+    // 文件靠后的位置（自动保存那段附近），于是初始化时踩 TDZ 抛
+    // "Cannot access 'historyButton' before initialization"，被那一层的 try 吞掉。
+    // 表现极具迷惑性：脚本的名称/描述/代码加载进来了，但命令映射、分支、按钮状态全都没跟上，
+    // 「微调」按钮一直是灰的。
+    // 结论：**凡是初始化阶段会被用到的元素/常量，声明都要放在前面**，不要图省事写在用它的函数旁边。
+    const autosaveStatusEl = document.getElementById('autosave-status');
+    const historyButton = document.getElementById('history-button');
+    const AUTOSAVE_DEBOUNCE_MS = 2500;
+    let autoSaveTimer = null;
+
+    // 最近一次自动保存的内容指纹。
+    //
+    // 隐性知识（实测踩过）：它必须在**页面脚本靠前的位置**声明。加载已保存脚本的
+    // loadDebuggingScript() 会在初始化时给它赋值（用来把基线对齐到刚加载的内容、避免
+    // 一进页面就触发一次无意义的自动保存），而那个函数在初始化阶段就被调用 —— 声明写在
+    // 后面（原来的位置在 2283 行）会踩 TDZ 抛 ReferenceError，被那一层的 try 吞掉，
+    // 表现成"脚本只加载了一半：名称/描述/代码进来了，命令映射与分支没进来、微调按钮还是灰的"。
+    let lastAutoSavedSignature = null;
+
+    // 用于 HTML 属性值的安全转义（escapeHtml 走 innerHTML，不会转义双引号）。
+    // 漏用的后果不小：历史列表项的 title 里若有未转义的 `"`，属性会被提前闭合、剩下的文字
+    // 被当成属性吞掉，整条看起来是空白的——很容易被误读成"历史没了"。
+    function escapeAttr(value) {
+      return escapeHtml(value == null ? '' : String(value)).replace(/"/g, '&quot;');
+    }
+
+    function branchTabHtml(branch, index) {
+      const name = (branch && branch.name) || ('分支' + (index + 1));
+      return '' +
+        '<li class="nav-item branch-tab" role="presentation">' +
+          '<button class="nav-link" id="scenario-tab-branch-' + index + '" data-bs-toggle="tab" data-bs-target="#scenario-pane-branch-' + index + '" type="button" role="tab" aria-controls="scenario-pane-branch-' + index + '" aria-selected="false">' +
+            '<span class="branch-tab-name">' + escapeHtml(name) + '</span>' +
+            '<span class="branch-tab-status ms-1"></span>' +
+            '<span class="branch-tab-close ms-2" role="button" title="删除该分支" aria-label="删除该分支">&times;</span>' +
+          '</button>' +
+        '</li>';
+    }
+
+    function branchPaneHtml(branch, index) {
+      branch = branch || {};
+      return '' +
+        '<div class="tab-pane fade branch-pane" id="scenario-pane-branch-' + index + '" role="tabpanel" aria-labelledby="scenario-tab-branch-' + index + '">' +
+          '<div class="d-flex justify-content-between align-items-center gap-2 mb-2 branch-pane-header">' +
+            '<input type="text" class="form-control form-control-sm branch-name flex-grow-1" placeholder="分支名称（如：命令报错）" value="' + escapeAttr(branch.name) + '">' +
+            '<button type="button" class="btn btn-sm btn-outline-success run-scenario-button text-nowrap" title="按该分支描述生成命令映射并运行脚本（不修改脚本代码）">' +
+              '<span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>' +
+              '<i class="bi bi-play-fill me-1"></i>运行' +
+            '</button>' +
+          '</div>' +
+          '<textarea class="form-control branch-description" rows="8" placeholder="按执行顺序填写该分支实际执行的命令 / 报文 / 处理逻辑（未执行到的命令不用列）...">' + escapeHtml(branch.description || '') + '</textarea>' +
+          '<div class="form-text text-muted small mt-1">只写该分支实际会执行的步骤；不要写「（不执行）」「其余同主线」这类占位，也不用写场景前提/验证点。</div>' +
+          '<div class="branch-result small mt-2 text-muted"></div>' +
+        '</div>';
+    }
+
+    function readBranchPanes() {
+      if (!scenarioTabContent) { return []; }
+      return Array.from(scenarioTabContent.querySelectorAll('.branch-pane')).map(function (pane) {
+        return {
+          name: pane.querySelector('.branch-name').value,
+          description: pane.querySelector('.branch-description').value
+        };
+      });
+    }
+
+    function refreshBranchEmptyHint() {
+      const count = scenarioTabContent ? scenarioTabContent.querySelectorAll('.branch-pane').length : 0;
+      if (branchEmptyHint) { branchEmptyHint.classList.toggle('d-none', count > 0); }
+    }
+
+    function activateScenarioTab(tabId) {
+      const el = document.getElementById(tabId);
+      if (!el) { return; }
+      try {
+        bootstrap.Tab.getOrCreateInstance(el).show();
+      } catch (e) {
+        el.click();
+      }
+    }
+
+    // 用给定分支列表重建标签与面板；activeIndex 为要激活的分支下标，-1 表示回到主线
+    function renderBranches(branches, activeIndex) {
+      if (!scenarioTabs || !scenarioTabContent || !branchTabActions) { return; }
+
+      scenarioTabs.querySelectorAll('.branch-tab').forEach(function (el) { el.remove(); });
+      scenarioTabContent.querySelectorAll('.branch-pane').forEach(function (el) { el.remove(); });
+
+      (branches || []).forEach(function (branch, index) {
+        branchTabActions.insertAdjacentHTML('beforebegin', branchTabHtml(branch, index));
+        scenarioTabContent.insertAdjacentHTML('beforeend', branchPaneHtml(branch, index));
+      });
+      refreshBranchEmptyHint();
+
+      activateScenarioTab(activeIndex == null || activeIndex < 0
+        ? 'scenario-tab-main'
+        : 'scenario-tab-branch-' + activeIndex);
+    }
+
+    function addBranch(branch) {
+      const list = readBranchPanes();
+      list.push(branch || {});
+      renderBranches(list, list.length - 1);
+    }
+
+    function removeBranchAt(index) {
+      const list = readBranchPanes();
+      list.splice(index, 1);
+      renderBranches(list, -1);
+    }
+
+    function setBranches(branches) {
+      renderBranches((branches || []).map(function (branch) {
+        return { name: branch.name || '', description: branch.description || '' };
+      }), -1);
+    }
+
+    function collectBranches() {
+      return readBranchPanes().map(function (branch) {
+        return { name: (branch.name || '').trim(), description: (branch.description || '').trim() };
+      }).filter(function (branch) { return branch.description; });
+    }
+
+    // ===== 各场景的命令映射 / 日志 / 结果 =====
+    // 切换场景标签时，把命令映射、执行日志、返回结果同步切换为该场景的产物。
+    // 注意：隐藏字段 #command-mapping-content 始终保存主线映射（保存脚本用），这里只改展示。
+    const scenarioArtifacts = {};
+    // 主线的初始展示（可能是加载的历史脚本），切回主线且暂无新产物时用它还原
+    let mainDisplayBaseline = null;
+
+    function captureMainBaseline() {
+      mainDisplayBaseline = {
+        mapping: generatedMapping.textContent,
+        logs: debugLogs.innerHTML,
+        result: debugResult.textContent,
+        // 评估结果面板也要能随场景还原，这里用 getElementById 避免初始化顺序问题
+        evalHidden: evalPanelEl() ? evalPanelEl().classList.contains('d-none') : true,
+        evalCardClass: evalCardEl() ? evalCardEl().className : '',
+        evalHeaderClass: evalHeaderEl() ? evalHeaderEl().parentElement.className : '',
+        evalHeaderHtml: evalHeaderEl() ? evalHeaderEl().innerHTML : '',
+        evalContentHtml: evalContentEl() ? evalContentEl().innerHTML : ''
+      };
+    }
+
+    function evalPanelEl() { return document.getElementById('evaluation-result'); }
+    function evalCardEl() { return evalPanelEl() ? evalPanelEl().querySelector('.card') : null; }
+    function evalHeaderEl() { return document.getElementById('eval-header'); }
+    function evalContentEl() { return document.getElementById('eval-content'); }
+
+    // 用某个场景的评估结果渲染"评估结果"面板
+    function renderEvaluationPanel(evaluation) {
+      const panel = evalPanelEl();
+      const card = evalCardEl();
+      const header = evalHeaderEl();
+      const content = evalContentEl();
+      if (!panel || !card || !header || !content || !evaluation) { return; }
+
+      const passed = evaluation.passed === true;
+      panel.classList.remove('d-none');
+      card.className = 'card border-' + (passed ? 'success' : 'warning') + ' border-1';
+      header.innerHTML = passed
+        ? '<i class="bi bi-check-circle me-1"></i>评估通过'
+        : '<i class="bi bi-exclamation-circle me-1"></i>评估未通过';
+      header.parentElement.className = 'card-header ' +
+        (passed ? 'bg-success bg-opacity-10 text-success' : 'bg-warning bg-opacity-10 text-warning') +
+        ' py-2 border-0';
+
+      content.innerHTML = buildEvaluationHtml(evaluation);
+    }
+
+    function restoreEvaluationBaseline() {
+      const panel = evalPanelEl();
+      const card = evalCardEl();
+      const header = evalHeaderEl();
+      const content = evalContentEl();
+      if (!panel) { return; }
+      if (!mainDisplayBaseline) { panel.classList.add('d-none'); return; }
+      panel.classList.toggle('d-none', !!mainDisplayBaseline.evalHidden);
+      if (card) { card.className = mainDisplayBaseline.evalCardClass; }
+      if (header) {
+        header.parentElement.className = mainDisplayBaseline.evalHeaderClass;
+        header.innerHTML = mainDisplayBaseline.evalHeaderHtml;
+      }
+      if (content) { content.innerHTML = mainDisplayBaseline.evalContentHtml; }
+    }
+
+    // 评估结果随场景标签切换：有产物就渲染该场景的评估，主线无新产物则还原初始状态
+    function renderActiveScenarioEvaluation() {
+      const key = scenarioKeyOfActiveTab();
+      const art = scenarioArtifacts[key];
+      if (art && art.evaluation) {
+        renderEvaluationPanel(art.evaluation);
+      } else if (key === 'main') {
+        restoreEvaluationBaseline();
+      } else {
+        const panel = evalPanelEl();
+        if (panel) { panel.classList.add('d-none'); }
+      }
+    }
+
+    function isScenarioActive(key) {
+      return scenarioKeyOfActiveTab() === key;
+    }
+
+    // 测试/评估进行中：让"评估结果"框动态反映当前场景的状态（否则会一直停在上一轮结论）
+    function renderEvaluationInProgress(name, text) {
+      const panel = evalPanelEl();
+      const card = evalCardEl();
+      const header = evalHeaderEl();
+      const content = evalContentEl();
+      if (!panel || !card || !header || !content) { return; }
+
+      panel.classList.remove('d-none');
+      card.className = 'card border-info border-1';
+      header.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>评估中';
+      header.parentElement.className = 'card-header bg-info bg-opacity-10 text-info py-2 border-0';
+      content.innerHTML = '<p class="mb-1">场景【' + escapeHtml(name || '') + '】：' + escapeHtml(text || '') + '</p>';
+    }
+
+    function scenarioKeyOfActiveTab() {
+      if (!scenarioTabs) { return 'main'; }
+      const active = scenarioTabs.querySelector('.nav-link.active');
+      if (!active || active.id === 'scenario-tab-main') { return 'main'; }
+      const index = parseInt(String(active.id).replace('scenario-tab-branch-', ''), 10);
+      return isNaN(index) ? 'main' : ('branch:' + index);
+    }
+
+    function setScenarioArtifact(key, patch) {
+      scenarioArtifacts[key] = Object.assign(scenarioArtifacts[key] || {}, patch);
+    }
+
+    function renderActiveScenarioArtifacts() {
+      const key = scenarioKeyOfActiveTab();
+      const art = scenarioArtifacts[key];
+      const baseline = key === 'main' ? mainDisplayBaseline : null;
+
+      if (!art) {
+        // 主线还原初始展示（可能是加载的历史脚本）；分支则提示尚未生成
+        if (key === 'main') {
+          if (baseline) {
+            generatedMapping.textContent = baseline.mapping;
+            debugLogs.innerHTML = baseline.logs;
+            debugResult.textContent = baseline.result;
+          }
+        } else {
+          generatedMapping.textContent = '# 该分支尚未生成命令映射';
+          debugLogs.innerHTML = '<div class="text-muted font-monospace small">该分支尚未测试</div>';
+          debugResult.textContent = '暂无结果';
+        }
+        return;
+      }
+
+      if (art.command_mapping) {
+        generatedMapping.textContent = JSON.stringify(art.command_mapping, null, 2);
+        hljs.highlightElement(generatedMapping);
+      } else if (baseline) {
+        generatedMapping.textContent = baseline.mapping;
+      }
+
+      const testResult = art.test_result || {};
+      if (testResult.logs) {
+        debugLogs.innerHTML = testResult.logs.map(function (log) {
+          return '<div class="font-monospace small">' + escapeHtml(log) + '</div>';
+        }).join('');
+      } else if (baseline) {
+        debugLogs.innerHTML = baseline.logs;
+      } else if (key !== 'main') {
+        debugLogs.innerHTML = '<div class="text-muted font-monospace small">该分支暂无日志</div>';
+      }
+
+      if (testResult.result !== undefined && testResult.result !== null) {
+        debugResult.textContent = JSON.stringify(testResult.result, null, 2);
+      } else if (baseline) {
+        debugResult.textContent = baseline.result;
+      } else if (key !== 'main') {
+        debugResult.textContent = '暂无结果';
+      }
+    }
+
+    // 保存时提交：当前编辑后的名称/描述 + 最近一次生成的分支映射与通过状态
+    function collectBranchScenariosForSave() {
+      return readBranchPanes().map(function (branch, index) {
+        const description = (branch.description || '').trim();
+        const generated = (lastGeneratedBranchScenarios || []).find(function (g) {
+          return g && g.description === description;
+        }) || (lastGeneratedBranchScenarios || [])[index] || {};
+        return {
+          name: (branch.name || '').trim(),
+          description: description,
+          command_mapping: generated.command_mapping || [],
+          passed: generated.passed === true
+        };
+      }).filter(function (branch) { return branch.description; });
+    }
+
+    function resetBranchResults() {
+      if (scenarioTabContent) {
+        scenarioTabContent.querySelectorAll('.branch-result').forEach(function (el) {
+          el.textContent = '';
+          el.removeAttribute('title');
+          el.className = 'branch-result small mt-2 text-muted';
+        });
+        scenarioTabContent.querySelectorAll('.branch-pane-header').forEach(function (el) {
+          el.removeAttribute('title');
+        });
+      }
+      if (scenarioTabs) {
+        scenarioTabs.querySelectorAll('.branch-tab-status').forEach(function (el) { el.textContent = ''; });
+        scenarioTabs.querySelectorAll('.branch-tab .nav-link').forEach(function (el) {
+          el.removeAttribute('title');
+        });
+      }
+    }
+
+    // 分支评估摘要：鼠标悬停在分支的评估结果（标签页 ✅/❌ 或结果行）上时显示。
+    //
+    // 隐性知识：
+    //   1. 分支面板/标签是动态注入、且增删分支时会整体重建，而 Bootstrap tooltip 只在页面加载时
+    //      初始化一次，动态元素拿不到——所以这里用原生 title（与分支「运行」按钮同一做法），
+    //      无需再初始化一次。
+    //   2. 摘要只取「结论 + 前两条问题」：完整评估在右侧「评估结果」面板里（切到该分支即可看到），
+    //      悬停提示不该把整篇评估正文塞进去。
+    function branchEvaluationSummary(evaluation, passed) {
+      const ev = evaluation || {};
+      const lines = [passed ? '评估通过' : '评估未通过'];
+      const issues = (ev.issues || []).filter(function (x) { return x; });
+      if (issues.length) { lines.push('问题：' + issues.slice(0, 2).join('；')); }
+      const conclusion = String(ev.evaluation || '').trim().replace(/\s+/g, ' ');
+      if (conclusion) {
+        lines.push(conclusion.length > 160 ? (conclusion.slice(0, 160) + '…') : conclusion);
+      }
+      return lines.join('\n');
+    }
+
+    // 把评估摘要挂到"整块分支标题"上：标签页整颗按钮 + 分支面板标题行。
+    // 只在 ✅/❌ 图标上面积太小、不好悬停，所以扩大到标题区域。
+    function setBranchSummaryTitles(index, summary) {
+      const tab = document.getElementById('scenario-tab-branch-' + index);
+      if (tab) { tab.title = summary; }
+      const pane = scenarioTabContent ? scenarioTabContent.querySelectorAll('.branch-pane')[index] : null;
+      const header = pane ? pane.querySelector('.branch-pane-header') : null;
+      if (header) { header.title = summary; }
+    }
+
+    // 渲染各分支测试结果（生成返回的 scenarios 中 kind === 'branch'）
+    function renderScenarioResults(scenarios) {
+      (scenarios || []).forEach(function (scenario) {
+        if (!scenario || scenario.kind !== 'branch') { return; }
+        const index = parseInt(String(scenario.key || '').split(':')[1], 10);
+        if (isNaN(index)) { return; }
+
+        const evaluation = scenario.evaluation || {};
+        const summary = branchEvaluationSummary(evaluation, scenario.passed);
+
+        const tabStatus = document.querySelector('#scenario-tab-branch-' + index + ' .branch-tab-status');
+        if (tabStatus) { tabStatus.textContent = scenario.passed ? '✅' : '❌'; }
+        // 摘要挂到整块标题上（标签 + 面板标题行），不再只挂在图标上
+        setBranchSummaryTitles(index, summary);
+
+        const pane = scenarioTabContent
+          ? scenarioTabContent.querySelectorAll('.branch-pane')[index]
+          : null;
+        if (!pane) { return; }
+        const issues = (evaluation.issues || []).join('；');
+        const box = pane.querySelector('.branch-result');
+        if (!box) { return; }
+        // 通过时不再附问题；未通过时才把该分支的问题摘要显示出来
+        let text = scenario.passed ? '✅ 测试通过' : '❌ 测试未通过';
+        if (!scenario.passed && issues) { text += '：' + issues; }
+        box.textContent = text;
+        box.title = summary;
+        box.className = 'branch-result small mt-2 ' + (scenario.passed ? 'text-success' : 'text-danger');
+      });
+    }
+
+    // ==== 单场景「运行」：按描述只生成命令映射 + 运行当前脚本（不改代码）====
+    //
+    // 业务逻辑：主线/分支各有一个「运行」按钮。点击后用该场景描述重新生成命令映射，
+    //   用**当前脚本代码**跑一遍并评估，结果写回该场景（映射 / 测试结果 / 通过与否）。
+    //
+    // 隐性知识：
+    //   1. 与「自动化生成」不同：这里绝不重新生成或修改脚本代码，也不重试。
+    //   2. 主线映射写回 #command-mapping-content（它始终存主线映射，保存/调试完成读它）；
+    //      分支映射写回 lastGeneratedBranchScenarios，保存/调试完成时才持久化
+    //      （见 collectBranchScenariosForSave）。
+    //   3. 结果即使不是当前激活标签，也要落到该分支的标签状态与行内结果上；只有当前激活的
+    //      场景才刷新右侧命令映射/日志/评估面板——不强制切换标签。
+    function readScenario(key) {
+      if (key === 'main') {
+        const desc = document.getElementById('user_prompt');
+        return { kind: 'main', index: -1, name: '主线', description: desc ? desc.value.trim() : '' };
+      }
+      const index = parseInt(String(key).split(':')[1], 10);
+      if (isNaN(index) || !scenarioTabContent) { return null; }
+      const pane = scenarioTabContent.querySelectorAll('.branch-pane')[index];
+      if (!pane) { return null; }
+      const nameEl = pane.querySelector('.branch-name');
+      const descEl = pane.querySelector('.branch-description');
+      return {
+        kind: 'branch',
+        index: index,
+        name: nameEl ? nameEl.value.trim() : '',
+        description: descEl ? descEl.value.trim() : ''
+      };
+    }
+
+    // 把运行结果写回该场景：产物 + （激活时）面板 + 分支行内状态
+    function applyRunResult(key, scenario, data) {
+      setScenarioArtifact(key, {
+        command_mapping: data.command_mapping || [],
+        test_result: data.test_result || {},
+        evaluation: data.evaluation || {},
+        passed: data.passed === true
+      });
+
+      if (scenario.kind === 'main') {
+        const hidden = document.getElementById('command-mapping-content');
+        if (hidden) { hidden.value = JSON.stringify(data.command_mapping || []); }
+      } else {
+        const list = (lastGeneratedBranchScenarios || []).slice();
+        let at = list.findIndex(function (g) { return g && g.description === scenario.description; });
+        if (at < 0) { at = scenario.index; }
+        list[at] = Object.assign({}, list[at] || {}, {
+          name: scenario.name,
+          description: scenario.description,
+          command_mapping: data.command_mapping || [],
+          passed: data.passed === true
+        });
+        lastGeneratedBranchScenarios = list;
+
+        // 分支标签状态与行内结果：与 renderScenarioResults 同一套呈现
+        const summary = branchEvaluationSummary(data.evaluation, data.passed === true);
+        const tabStatus = document.querySelector('#scenario-tab-branch-' + scenario.index + ' .branch-tab-status');
+        if (tabStatus) { tabStatus.textContent = data.passed ? '✅' : '❌'; }
+        // 摘要挂到整块标题上（标签 + 面板标题行）
+        setBranchSummaryTitles(scenario.index, summary);
+        const pane = scenarioTabContent
+          ? scenarioTabContent.querySelectorAll('.branch-pane')[scenario.index]
+          : null;
+        const box = pane ? pane.querySelector('.branch-result') : null;
+        if (box) {
+          const issues = ((data.evaluation || {}).issues || []).join('；');
+          let text = data.passed ? '✅ 测试通过' : '❌ 测试未通过';
+          if (!data.passed && issues) { text += '：' + issues; }
+          box.textContent = text;
+          box.title = summary;
+          box.className = 'branch-result small mt-2 ' + (data.passed ? 'text-success' : 'text-danger');
+        }
+      }
+
+      if (isScenarioActive(key)) {
+        renderActiveScenarioArtifacts();
+        renderActiveScenarioEvaluation();
+      }
+    }
+
+    // 运行前的 LLM Key 守卫：给「运行」「运行所有分支」共用。返回 key，失败返回 null。
+    async function loadLlmKeyForRun() {
+      if (typeof LlmKeyStore === 'undefined' || !LlmKeyStore.isSupported()) {
+        alert(typeof LlmKeyStore !== 'undefined'
+          ? LlmKeyStore.unsupportedReason()
+          : '本页面的加密模块未加载，请刷新重试');
+        return null;
+      }
+      const llmKey = await LlmKeyStore.loadKey();
+      if (!llmKey) {
+        alert('请先在上方填写并验证您的 LLM API Key');
+        return null;
+      }
+      return llmKey;
+    }
+
+    // 发起一次单场景运行并写回结果。
+    // 返回 { ok: true, data } 或 { ok: false, error }；**不弹 alert**（批量运行不该逐条弹窗）。
+    async function performScenarioRun(scenario, key, llmKey, triggerButton) {
+      const spinner = triggerButton ? triggerButton.querySelector('.spinner-border') : null;
+      if (spinner) { spinner.classList.remove('d-none'); }
+      if (triggerButton) { triggerButton.disabled = true; }
+
+      try {
+        const response = await fetch('/scripts/run_scenario', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+          },
+          body: JSON.stringify({
+            code: currentGeneratedCode(),
+            kind: scenario.kind,
+            name: scenario.name,
+            description: scenario.description,
+            mainline_description: userPromptTextarea ? userPromptTextarea.value.trim() : '',
+            script_uid: (document.getElementById('script-uid') || {}).value || ''
+          })
+        });
+        const raw = await response.text();
+        let data = {};
+        try { data = JSON.parse(raw); } catch (e) { data = {}; }
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || ('HTTP ' + response.status));
+        }
+        applyRunResult(key, scenario, data);
+        return { ok: true, data: data };
+      } catch (error) {
+        console.error('运行场景失败:', error);
+        showStatus('运行失败：' + error.message, 'danger');
+        return { ok: false, error: error.message };
+      } finally {
+        if (spinner) { spinner.classList.add('d-none'); }
+        if (triggerButton) { triggerButton.disabled = false; }
+      }
+    }
+
+    async function runScenario(key, triggerButton) {
+      const scenario = readScenario(key);
+      if (!scenario) { return; }
+      if (!codeReadyForActions()) {
+        alert('请先生成脚本代码，再运行');
+        return;
+      }
+      if (!scenario.description) {
+        alert(scenario.kind === 'main' ? '请先填写主线任务描述' : '请先填写该分支的描述');
+        return;
+      }
+      const llmKey = await loadLlmKeyForRun();
+      if (!llmKey) { return; }
+
+      showStatus('正在按描述生成命令映射并运行脚本…', 'info');
+      const result = await performScenarioRun(scenario, key, llmKey, triggerButton);
+      if (result.ok) {
+        showStatus('运行完成：' + (result.data.passed ? '✅ 通过' : '❌ 未通过'),
+                   result.data.passed ? 'success' : 'warning');
+      } else {
+        alert('运行失败：' + result.error);
+      }
+    }
+
+    // 一键重新执行所有场景：**主线 + 逐个分支**（串行），按各自描述生成命令映射并运行。
+    //
+    // 隐性知识：
+    //   1. **主线排在最前**：主线是脚本主流程，先主线后分支，进度与直觉一致。
+    //   2. **串行**而不是并发：每个场景要跑一次沙盒 + 两次 LLM，并发既压服务、进度也难读；
+    //      串行还能让每个场景的结果即刻落到各自的标签/结果行上。
+    //   3. 无描述的场景跳过并计数；单个场景失败不中断，最后给一条汇总。
+    //   4. 不改脚本代码：复用 performScenarioRun（即 /scripts/run_scenario）。
+    async function runAllScenarios(triggerButton) {
+      if (!codeReadyForActions()) { alert('请先生成脚本代码，再运行'); return; }
+
+      const targets = [];
+      const mainScenario = readScenario('main');
+      if (mainScenario) { targets.push({ key: 'main', scenario: mainScenario }); }
+      const panes = scenarioTabContent ? scenarioTabContent.querySelectorAll('.branch-pane') : [];
+      for (let i = 0; i < panes.length; i++) {
+        const scenario = readScenario('branch:' + i);
+        if (scenario) { targets.push({ key: 'branch:' + i, scenario: scenario }); }
+      }
+      if (!targets.some(function (t) { return t.scenario.description; })) {
+        alert('没有可运行的场景：请先填写主线或分支的描述');
+        return;
+      }
+
+      const llmKey = await loadLlmKeyForRun();
+      if (!llmKey) { return; }
+
+      const spinner = triggerButton ? triggerButton.querySelector('.spinner-border') : null;
+      if (spinner) { spinner.classList.remove('d-none'); }
+      if (triggerButton) { triggerButton.disabled = true; }
+
+      let mainRan = false, mainPassed = false, mainErrored = false, mainSkipped = false;
+      let passed = 0, failed = 0, errored = 0, skipped = 0;
+      try {
+        for (let i = 0; i < targets.length; i++) {
+          const t = targets[i];
+          const isMain = t.key === 'main';
+          const label = isMain ? '主线' : ('分支：' + (t.scenario.name || ('分支' + (t.scenario.index + 1))));
+          if (!t.scenario.description) {
+            if (isMain) { mainSkipped = true; } else { skipped += 1; }
+            continue;
+          }
+          showStatus('正在运行 ' + (i + 1) + '/' + targets.length + '：' + label, 'info');
+          const result = await performScenarioRun(t.scenario, t.key, llmKey, null);
+          if (isMain) {
+            if (!result.ok) { mainErrored = true; } else { mainRan = true; mainPassed = result.data.passed === true; }
+          } else if (!result.ok) { errored += 1; }
+          else if (result.data.passed) { passed += 1; }
+          else { failed += 1; }
+        }
+
+        const parts = [];
+        if (mainErrored) { parts.push('主线 执行失败'); }
+        else if (mainRan) { parts.push('主线 ' + (mainPassed ? '✅ 通过' : '❌ 未通过')); }
+        else if (mainSkipped) { parts.push('主线 跳过（无描述）'); }
+        parts.push('分支 通过 ' + passed + '，未通过 ' + failed);
+        if (errored) { parts.push('分支失败 ' + errored); }
+        if (skipped) { parts.push('分支跳过（无描述）' + skipped); }
+
+        const allOk = mainRan && mainPassed && failed === 0 && errored === 0;
+        showStatus('已重新执行全部场景：' + parts.join('；'), allOk ? 'success' : 'warning');
+        if (!allOk) { alert('全部场景执行完成：' + parts.join('；')); }
+      } finally {
+        if (spinner) { spinner.classList.add('d-none'); }
+        if (triggerButton) { triggerButton.disabled = false; }
+      }
+    }
+
+    const runMainScenarioButton = document.getElementById('run-scenario-main');
+    if (runMainScenarioButton) {
+      runMainScenarioButton.addEventListener('click', function () {
+        runScenario('main', runMainScenarioButton);
+      });
+    }
+    // 分支「运行」：事件委托在 tab-content 上（分支面板是动态注入且在增删分支时会被重建）
+    if (scenarioTabContent) {
+      scenarioTabContent.addEventListener('click', function (e) {
+        const btn = e.target.closest('.run-scenario-button');
+        if (!btn) { return; }
+        const pane = btn.closest('.branch-pane');
+        if (!pane) { return; }
+        const panes = Array.prototype.slice.call(scenarioTabContent.querySelectorAll('.branch-pane'));
+        const index = panes.indexOf(pane);
+        if (index < 0) { return; }
+        runScenario('branch:' + index, btn);
+      });
+    }
+
+    // 一键重新执行所有场景（主线 + 所有分支）
+    const runAllScenariosButton = document.getElementById('run-all-scenarios-button');
+    if (runAllScenariosButton) {
+      runAllScenariosButton.addEventListener('click', function () {
+        runAllScenarios(runAllScenariosButton);
+      });
+    }
+
+    // 删除分支：事件委托在标签容器上（点关闭按钮不应触发标签切换）
+    if (scenarioTabs) {
+      scenarioTabs.addEventListener('click', function (e) {
+        const close = e.target.closest('.branch-tab-close');
+        if (!close) { return; }
+        e.preventDefault();
+        e.stopPropagation();
+        const tabs = Array.from(scenarioTabs.querySelectorAll('.branch-tab'));
+        const index = tabs.indexOf(close.closest('.branch-tab'));
+        if (index >= 0) { removeBranchAt(index); }
+      });
+    }
+    // 操作区（添加分支 / AI建议分支）不是标签页，点它不应切换标签
+    if (branchTabActions) {
+      branchTabActions.addEventListener('click', function (e) { e.stopPropagation(); });
+    }
+
+    // 切换场景标签时，同步该场景的命令映射、日志、结果与评估
+    if (scenarioTabs) {
+      scenarioTabs.addEventListener('shown.bs.tab', function () {
+        renderActiveScenarioArtifacts();
+        renderActiveScenarioEvaluation();
+      });
+    }
+
+    // 分支名称变化时同步到标签标题
+    if (scenarioTabContent) {
+      scenarioTabContent.addEventListener('input', function (e) {
+        if (!e.target.classList || !e.target.classList.contains('branch-name')) { return; }
+        const pane = e.target.closest('.branch-pane');
+        if (!pane) { return; }
+        const panes = Array.from(scenarioTabContent.querySelectorAll('.branch-pane'));
+        const index = panes.indexOf(pane);
+        const nameEl = document.querySelector('#scenario-tab-branch-' + index + ' .branch-tab-name');
+        if (nameEl) { nameEl.textContent = e.target.value.trim() || ('分支' + (index + 1)); }
+      });
+    }
+
+    const addBranchButton = document.getElementById('add-branch-button');
+    if (addBranchButton) {
+      addBranchButton.addEventListener('click', function () { addBranch({}); });
+    }
+
+    function renderBranchSuggestions(branches) {
+      const list = document.getElementById('branch-suggestion-list');
+      if (!list) { return; }
+      if (!branches || branches.length === 0) {
+        list.innerHTML = '<div class="text-muted">未获得建议，请稍后重试。</div>';
+        updateSuggestionHint();
+        return;
+      }
+      list.innerHTML = branches.map(function (branch) {
+        return '' +
+          '<div class="card suggestion-item mb-4">' +
+            '<div class="card-body">' +
+              '<div class="d-flex align-items-center gap-2 mb-3">' +
+                '<label class="form-label small text-muted mb-0 text-nowrap">分支名称</label>' +
+                '<input type="text" class="form-control suggestion-name" placeholder="可留空" value="' + escapeAttr(branch.name || '') + '">' +
+                '<button type="button" class="btn btn-sm btn-primary suggestion-adopt text-nowrap">' +
+                  '<i class="bi bi-plus-lg me-1"></i>采纳此分支' +
+                '</button>' +
+              '</div>' +
+              '<textarea class="form-control suggestion-description" rows="12" placeholder="按执行顺序填写该分支实际执行的命令 / 报文 / 处理逻辑（未执行到的命令不用列）">' + escapeHtml(branch.description || '') + '</textarea>' +
+            '</div>' +
+          '</div>';
+      }).join('');
+      updateSuggestionHint();
+    }
+
+    function updateSuggestionHint() {
+      const hint = document.getElementById('branch-suggestion-hint');
+      const list = document.getElementById('branch-suggestion-list');
+      if (!hint || !list) { return; }
+      const total = list.querySelectorAll('.suggestion-item').length;
+      const adopted = list.querySelectorAll('.suggestion-item.adopted').length;
+      hint.textContent = adopted > 0 ? ('已采纳 ' + adopted + ' / ' + total + ' 条') : '未采纳的建议可继续编辑。';
+    }
+
+    // 采纳单条建议：加入分支标签页，并把该建议标记为已采纳
+    function adoptSuggestionCard(card) {
+      if (!card || card.classList.contains('adopted')) { return false; }
+      const name = card.querySelector('.suggestion-name').value.trim();
+      const textarea = card.querySelector('.suggestion-description');
+      const description = textarea ? textarea.value.trim() : '';
+      if (!description) { alert('该建议描述为空，无法采纳'); return false; }
+
+      addBranch({ name: name, description: description });
+      card.classList.add('adopted');
+      const btn = card.querySelector('.suggestion-adopt');
+      if (btn) {
+        btn.disabled = true;
+        btn.className = 'btn btn-sm btn-outline-success suggestion-adopt';
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>已采纳';
+      }
+      updateSuggestionHint();
+      return true;
+    }
+
+    // 读取当前建议列表（"换一批"时作为 avoid 传给后端，避免重复给同样的建议）
+    function currentSuggestionTexts() {
+      const list = document.getElementById('branch-suggestion-list');
+      if (!list) { return []; }
+      return Array.from(list.querySelectorAll('.suggestion-item')).map(function (card) {
+        const nameEl = card.querySelector('.suggestion-name');
+        const descEl = card.querySelector('.suggestion-description');
+        return { name: nameEl ? nameEl.value.trim() : '', description: descEl ? descEl.value.trim() : '' };
+      }).filter(function (branch) { return branch.description; });
+    }
+
+    // 请求一批建议；avoid 里的建议会被要求不再重复。
+    // customRequirement 非空时是「自定义场景」：由用户指定场景，模型据此生成 1~N 条。
+    // 返回 true 表示成功。
+    async function requestBranchSuggestions(avoid, triggerButton, customRequirement) {
+      const description = userPromptTextarea.value.trim();
+      if (!description) {
+        alert('请先填写主线任务描述');
+        return false;
+      }
+      if (typeof LlmKeyStore === 'undefined' || !LlmKeyStore.isSupported()) {
+        alert(typeof LlmKeyStore !== 'undefined'
+          ? LlmKeyStore.unsupportedReason()
+          : '本页面的加密模块未加载，请刷新重试');
+        return false;
+      }
+      const llmKey = await LlmKeyStore.loadKey();
+      if (!llmKey) {
+        alert('请先在上方填写并验证您的 LLM API Key');
+        return false;
+      }
+
+      const custom = (customRequirement || '').trim();
+      const customPanel = document.getElementById('custom-branch-panel');
+      // 非自定义入口（AI建议分支 / 换一批）时收起自定义输入区，避免误以为这次带了自定义内容
+      if (!custom && customPanel) { customPanel.classList.add('d-none'); }
+
+      const suggestButton = document.getElementById('suggest-branches-button');
+      const regenerateButton = document.getElementById('regenerate-branches-button');
+      const customGenerateButton = document.getElementById('custom-branch-generate');
+      const button = triggerButton || suggestButton;
+      const spinner = button ? button.querySelector('.spinner-border') : null;
+      if (spinner) { spinner.classList.remove('d-none'); }
+      if (suggestButton) { suggestButton.disabled = true; }
+      if (regenerateButton) { regenerateButton.disabled = true; }
+      if (customGenerateButton) { customGenerateButton.disabled = true; }
+
+      try {
+        const response = await fetch('/scripts/suggest_branches', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+          },
+          body: JSON.stringify({
+            description: description,
+            branches: collectBranches(),
+            avoid: avoid || [],
+            custom_requirement: custom || null
+          })
+        });
+        const data = await response.json();
+        // 全部建议都被判为超纲/矛盾时 success=false，但 dropped 里有原因，仍要展示
+        const allDropped = data.dropped && data.dropped.length > 0 && !data.success;
+        if (!response.ok || (!data.success && !allDropped)) {
+          throw new Error(data.error || ('HTTP ' + response.status));
+        }
+        renderBranchSuggestions(data.branches || []);
+        renderSuggestionDropped(data.dropped || [], data.consistency_checked !== false);
+        if (allDropped && data.error) { showStatus(data.error, 'warning'); }
+        const modalEl = document.getElementById('branch-suggestion-modal');
+        if (modalEl) { bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
+        return true;
+      } catch (error) {
+        console.error('AI建议分支失败:', error);
+        showStatus('AI建议分支失败：' + error.message, 'danger');
+        alert('AI建议分支失败：' + error.message);
+        return false;
+      } finally {
+        if (spinner) { spinner.classList.add('d-none'); }
+        if (suggestButton) { suggestButton.disabled = false; }
+        if (regenerateButton) { regenerateButton.disabled = false; }
+        if (customGenerateButton) { customGenerateButton.disabled = false; }
+      }
+    }
+
+    function suggestBranches() {
+      return requestBranchSuggestions([], document.getElementById('suggest-branches-button'));
+    }
+
+    const suggestBranchesButton = document.getElementById('suggest-branches-button');
+    if (suggestBranchesButton) {
+      suggestBranchesButton.addEventListener('click', suggestBranches);
+    }
+
+    // 换一批：带上当前这批建议作为 avoid，要求给不同的
+    const regenerateBranchesButton = document.getElementById('regenerate-branches-button');
+    if (regenerateBranchesButton) {
+      regenerateBranchesButton.addEventListener('click', function () {
+        requestBranchSuggestions(currentSuggestionTexts(), regenerateBranchesButton);
+      });
+    }
+
+    // 自定义场景：点「自定义」展开输入区，提交后按用户描述生成 1~N 条分支
+    const customBranchButton = document.getElementById('custom-branch-button');
+    const customBranchPanel = document.getElementById('custom-branch-panel');
+    const customBranchInput = document.getElementById('custom-branch-input');
+    const customBranchCancel = document.getElementById('custom-branch-cancel');
+    const customBranchGenerate = document.getElementById('custom-branch-generate');
+
+    if (customBranchButton && customBranchPanel) {
+      customBranchButton.addEventListener('click', function () {
+        customBranchPanel.classList.remove('d-none');
+        if (customBranchInput) { customBranchInput.focus(); }
+      });
+    }
+    if (customBranchCancel && customBranchPanel) {
+      customBranchCancel.addEventListener('click', function () {
+        customBranchPanel.classList.add('d-none');
+      });
+    }
+    if (customBranchGenerate && customBranchInput) {
+      const submitCustom = async function () {
+        const requirement = customBranchInput.value.trim();
+        if (!requirement) {
+          alert('请先输入要覆盖的分支场景');
+          customBranchInput.focus();
+          return;
+        }
+        const ok = await requestBranchSuggestions(currentSuggestionTexts(), customBranchGenerate, requirement);
+        // 生成成功才收起输入区；输入内容保留，方便在此基础上再改再生成
+        if (ok && customBranchPanel) { customBranchPanel.classList.add('d-none'); }
+      };
+      customBranchGenerate.addEventListener('click', submitCustom);
+      // Ctrl/Cmd + Enter 快捷提交
+      customBranchInput.addEventListener('keydown', function (event) {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+          event.preventDefault();
+          submitCustom();
+        }
+      });
+    }
+
+    // ===== 分支一致性检查（手动）=====
+    function verdictLabel(verdict) {
+      if (verdict === 'ok') { return '合规'; }
+      if (verdict === 'stricter') { return '超纲（比主线更严）'; }
+      if (verdict === 'contradiction') { return '与主线矛盾'; }
+      return '无法判定';
+    }
+
+    function verdictBadge(verdict) {
+      if (verdict === 'ok') { return '✅ 合规'; }
+      if (verdict === 'stricter') { return '⚠️ 超纲'; }
+      if (verdict === 'contradiction') { return '❌ 矛盾'; }
+      return '❓ 无法判定';
+    }
+
+    // 建议弹框顶部：提示被自动丢弃的超纲/矛盾建议
+    function renderSuggestionDropped(dropped, consistencyChecked) {
+      const box = document.getElementById('branch-suggestion-dropped');
+      if (!box) { return; }
+      const parts = [];
+      if (dropped && dropped.length > 0) {
+        const items = dropped.map(function (d) {
+          return escapeHtml((d.name || '未命名') + '（' + verdictLabel(d.verdict) + (d.reason ? '：' + d.reason : '') + '）');
+        }).join('；');
+        parts.push('<div class="alert alert-warning py-2 small mb-3"><i class="bi bi-funnel me-1"></i>已自动丢弃 ' +
+          dropped.length + ' 条超纲/与主线矛盾的建议：' + items + '</div>');
+      }
+      if (consistencyChecked === false && (!dropped || dropped.length === 0)) {
+        parts.push('<div class="alert alert-info py-2 small mb-3">本次未完成一致性校验（校验服务异常），建议仅供参考。</div>');
+      }
+      if (parts.length === 0) {
+        box.classList.add('d-none');
+        box.innerHTML = '';
+        return;
+      }
+      box.classList.remove('d-none');
+      box.innerHTML = parts.join('');
+    }
+
+    function renderBranchCheckResults(results) {
+      const list = document.getElementById('branch-check-list');
+      if (!list) { return; }
+      if (!results || results.length === 0) {
+        list.innerHTML = '<div class="text-muted">没有可检查的分支。</div>';
+        return;
+      }
+      list.innerHTML = results.map(function (r) {
+        const cls = r.verdict === 'ok' ? 'border-success' : (r.verdict === 'contradiction' ? 'border-danger' : 'border-warning');
+        const offending = (r.offending || []).length > 0
+          ? '<ul class="small text-danger mb-0 mt-2">' + r.offending.map(function (o) { return '<li>' + escapeHtml(o) + '</li>'; }).join('') + '</ul>'
+          : '';
+        const reason = r.reason ? '<div class="small text-muted mt-2">' + escapeHtml(r.reason) + '</div>' : '';
+        return '' +
+          '<div class="card ' + cls + ' border-1 mb-3">' +
+            '<div class="card-body py-3">' +
+              '<div class="d-flex justify-content-between align-items-center">' +
+                '<span class="fw-medium">' + escapeHtml(r.name || ('分支' + ((r.index || 0) + 1))) + '</span>' +
+                '<span class="small">' + verdictBadge(r.verdict) + '</span>' +
+              '</div>' + reason + offending +
+            '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    async function checkBranches() {
+      const description = userPromptTextarea.value.trim();
+      if (!description) { alert('请先填写主线任务描述'); return; }
+      const branches = collectBranches();
+      if (branches.length === 0) { alert('请先添加至少一个分支'); return; }
+      if (typeof LlmKeyStore === 'undefined' || !LlmKeyStore.isSupported()) {
+        alert(typeof LlmKeyStore !== 'undefined' ? LlmKeyStore.unsupportedReason() : '本页面的加密模块未加载，请刷新重试');
+        return;
+      }
+      const llmKey = await LlmKeyStore.loadKey();
+      if (!llmKey) {
+        alert('请先在上方填写并验证您的 LLM API Key');
+        return;
+      }
+
+      const button = document.getElementById('check-branches-button');
+      const spinner = button ? button.querySelector('.spinner-border') : null;
+      if (spinner) { spinner.classList.remove('d-none'); }
+      if (button) { button.disabled = true; }
+
+      try {
+        const response = await fetch('/scripts/check_branches', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+          },
+          body: JSON.stringify({ description: description, branches: branches })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || ('HTTP ' + response.status));
+        }
+        renderBranchCheckResults(data.results || []);
+        const modalEl = document.getElementById('branch-check-modal');
+        if (modalEl) { bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
+
+        const issues = (data.results || []).filter(function (r) { return r.verdict !== 'ok'; });
+        if (issues.length === 0) {
+          showStatus('分支一致性检查通过：所有分支都在主线要求范围内。', 'success');
+        } else {
+          const over = issues.filter(function (r) { return r.verdict === 'stricter'; }).length;
+          const contra = issues.filter(function (r) { return r.verdict === 'contradiction'; }).length;
+          showStatus('分支一致性检查：' + issues.length + ' 条有问题（超纲 ' + over + ' / 矛盾 ' + contra + '），详见弹框。', 'warning');
+        }
+      } catch (error) {
+        console.error('检查分支失败:', error);
+        showStatus('检查分支失败：' + error.message, 'danger');
+        alert('检查分支失败：' + error.message);
+      } finally {
+        if (spinner) { spinner.classList.add('d-none'); }
+        if (button) { button.disabled = false; }
+      }
+    }
+
+    const checkBranchesButton = document.getElementById('check-branches-button');
+    if (checkBranchesButton) {
+      checkBranchesButton.addEventListener('click', checkBranches);
+    }
+
+    const suggestList = document.getElementById('branch-suggestion-list');
+    if (suggestList) {
+      suggestList.addEventListener('click', function (e) {
+        const btn = e.target.closest('.suggestion-adopt');
+        if (!btn) { return; }
+        adoptSuggestionCard(btn.closest('.suggestion-item'));
+      });
+    }
+
+    const adoptAllBranchesButton = document.getElementById('adopt-all-branches-button');
+    if (adoptAllBranchesButton) {
+      adoptAllBranchesButton.addEventListener('click', function () {
+        const list = document.getElementById('branch-suggestion-list');
+        if (!list) { return; }
+        let adopted = 0;
+        list.querySelectorAll('.suggestion-item').forEach(function (card) {
+          if (adoptSuggestionCard(card)) { adopted += 1; }
+        });
+        showStatus('已采纳 ' + adopted + ' 个建议分支', 'success');
+      });
+    }
+
+    // ---- 执行日志 / 返回结果的全屏查看 ----
+    // 用全屏弹框承载，克隆原面板内容并去掉限高；原面板在生成过程中不断被重写，
+    // 所以用 MutationObserver 在全屏打开时跟着刷新，避免看到的是旧内容。
+    let fsSource = null;
+    let fsModalInstance = null;
+    const fsModalEl = document.getElementById('fs-modal');
+    const fsTitle = document.getElementById('fs-title');
+    const fsBody = document.getElementById('fs-body');
+
+    function getFsModal() {
+      if (!fsModalInstance && fsModalEl) {
+        fsModalInstance = new bootstrap.Modal(fsModalEl);
+      }
+      return fsModalInstance;
+    }
+
+    function renderFullscreen() {
+      if (!fsSource || !fsBody) { return; }
+      const src = document.getElementById(fsSource);
+      if (!src) { return; }
+
+      const clone = src.cloneNode(true);
+      clone.removeAttribute('id');
+      clone.removeAttribute('style');   // 去掉原面板的 max-height / overflow 限高
+      clone.classList.add('fs-content');
+
+      fsBody.innerHTML = '';
+      fsBody.appendChild(clone);
+    }
+
+    function openFullscreen(sourceId, title) {
+      if (!fsModalEl) { return; }
+      fsSource = sourceId;
+      if (fsTitle) { fsTitle.textContent = title; }
+      renderFullscreen();
+      getFsModal().show();
+    }
+
+    ['debug-logs', 'debug-result'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) { return; }
+      new MutationObserver(function () {
+        if (fsSource === id && fsModalEl && fsModalEl.classList.contains('show')) {
+          renderFullscreen();
+        }
+      }).observe(el, { childList: true, subtree: true, characterData: true });
+    });
+
+    const fsLogsBtn = document.getElementById('fs-logs-btn');
+    if (fsLogsBtn) {
+      fsLogsBtn.addEventListener('click', function () { openFullscreen('debug-logs', '执行日志'); });
+    }
+    const fsResultBtn = document.getElementById('fs-result-btn');
+    if (fsResultBtn) {
+      fsResultBtn.addEventListener('click', function () { openFullscreen('debug-result', '返回结果'); });
+    }
+
+    if (fsModalEl) {
+      fsModalEl.addEventListener('hidden.bs.modal', function () {
+        fsSource = null;
+        if (fsBody) { fsBody.innerHTML = ''; }
+      });
+    }
+
+    const fsCopyBtn = document.getElementById('fs-copy-btn');
+    if (fsCopyBtn) {
+      fsCopyBtn.addEventListener('click', async function () {
+        const text = fsBody ? fsBody.innerText : '';
+        try {
+          await navigator.clipboard.writeText(text);
+          this.innerHTML = '<i class="bi bi-check2 me-1"></i>已复制';
+          setTimeout(() => { this.innerHTML = '<i class="bi bi-clipboard me-1"></i>复制'; }, 1500);
+        } catch (e) {
+          alert('复制失败，请手动选中复制');
+        }
+      });
+    }
+
+    // 脚本编辑相关元素
+    const scriptView = document.getElementById('script-view');
+    const scriptEdit = document.getElementById('script-edit');
+    const scriptEditTextarea = document.getElementById('script-edit-textarea');
+
+
+    // 映射相关元素
+    const generatedMapping = document.getElementById('generated-mapping');
+    const mappingView = document.getElementById('mapping-view');
+    const mappingEdit = document.getElementById('mapping-edit');
+    const mappingEditTextarea = document.getElementById('mapping-edit-textarea');
+
+    // 全屏编辑相关元素
+    const userPromptFullscreen = document.getElementById('user_prompt_fullscreen');
+    const fullscreenModal = document.getElementById('fullscreen-editor-modal');
+
+    // 打开全屏编辑时同步内容
+    fullscreenModal.addEventListener('show.bs.modal', function() {
+      userPromptFullscreen.value = userPromptTextarea.value;
+    });
+
+    // 应用全屏编辑内容
+    document.getElementById('apply-fullscreen-content').addEventListener('click', function() {
+      userPromptTextarea.value = userPromptFullscreen.value;
+      const modal = bootstrap.Modal.getInstance(fullscreenModal);
+      modal.hide();
+    });
+
+     // 加载调试中的脚本
+     function loadDebuggingScript() {
+       const scriptDataEl = document.getElementById('debugging-script-data');
+       if (!scriptDataEl) return;
+
+       try {
+         const scriptData = JSON.parse(scriptDataEl.textContent);
+
+         if (scriptData.id) {
+         }
+         // 脚本唯一标识（服务端已渲染，这里防御性覆盖）
+         if (scriptData.script_uid) {
+           const uidEl = document.getElementById('script-uid');
+           if (uidEl) { uidEl.value = scriptData.script_uid; }
+         }
+         // 调试状态徽标（加载的脚本按库里的状态显示）
+         setScriptStatus(scriptData.publish_status || 'debugging');
+
+        // 填充表单字段
+        if (scriptData.name) {
+          document.getElementById('script_name').value = scriptData.name;
+        }
+        if (scriptData.description) {
+          document.getElementById('script_intro').value = scriptData.description;
+        }
+        if (scriptData.initial_prompt) {
+          document.getElementById('user_prompt').value = scriptData.initial_prompt;
+        }
+        // 设备型号：写回隐藏输入后重建多选控件（控件只认这个隐藏值）
+        document.getElementById('device_models').value = (scriptData.device_models || []).join(', ');
+        if (window.DeviceModelPicker) { window.DeviceModelPicker.syncFromInput(); }
+
+        // 填充脚本代码
+        if (scriptData.code) {
+          generatedCode.textContent = scriptData.code;
+          hljs.highlightElement(generatedCode);
+        }
+        // 已入库的脚本才有历史可看；同时把自动保存基线对齐到刚加载的内容，
+        // 避免一进页面就因指纹不同而触发一次无意义的自动保存
+        if (scriptData.id) {
+          enableHistoryButton();
+        }
+        lastAutoSavedSignature = autoSaveSignature();
+
+        // 填充命令映射
+        if (scriptData.command_mapping) {
+          const mappingStr = JSON.stringify(scriptData.command_mapping, null, 2);
+          generatedMapping.textContent = mappingStr;
+          document.getElementById('command-mapping-content').value = mappingStr;
+          hljs.highlightElement(generatedMapping);
+          setScenarioArtifact('main', { command_mapping: scriptData.command_mapping });
+        }
+
+        // 填充分支覆盖场景（名称/描述/最近一次生成的映射与通过状态）
+        if (scriptData.branch_scenarios) {
+          setBranches(scriptData.branch_scenarios);
+          lastGeneratedBranchScenarios = scriptData.branch_scenarios;
+          // 让切换分支标签时也能看到已保存的该分支命令映射
+          scriptData.branch_scenarios.forEach(function (branch, index) {
+            setScenarioArtifact('branch:' + index, { command_mapping: branch.command_mapping || [] });
+          });
+        }
+
+        // 显示脚本描述
+        if (scriptData.description) {
+          scriptIntro.value = scriptData.description;
+          scriptIntro.classList.remove('d-none');
+        }
+
+     // 启用保存按钮和调试完成按钮
+     enableSaveButtonIfNeeded();
+     if (scriptData.code && !scriptData.code.startsWith('# 生成的脚本将显示在这里')) {
+       publishButton.disabled = false;
+     }
+
+         // 加载调试日志
+         if (scriptData.sandbox_debug_log) {
+           const logLines = scriptData.sandbox_debug_log.split('\n').filter(line => line.trim());
+           if (logLines.length > 0) {
+             debugLogs.innerHTML = logLines.map(log =>
+               '<div class="font-monospace small">' + escapeHtml(log) + '</div>'
+             ).join('');
+           }
+         }
+
+         // 加载调试结果
+         if (scriptData.debug_execution_result) {
+           try {
+             const resultData = JSON.parse(scriptData.debug_execution_result);
+             if (resultData.test_result) {
+               debugResult.textContent = JSON.stringify(resultData.test_result, null, 2);
+             }
+           } catch (e) {
+             console.error('解析调试结果失败:', e);
+           }
+         }
+
+         // 全部填完之后再刷新按钮状态 —— 必须在**代码写进代码框之后**：
+         // 微调的可用性只看代码框，而这里加载出的代码是脚本直接赋值进去的，
+         // MutationObserver 还没注册（它在下面才注册），没人重算就会停在初始的禁用态
+         // （实测：脚本明明加载出来了、微调按钮却是灰的）。
+         refreshActionButtons();
+
+       } catch (e) {
+         console.error('加载调试脚本失败:', e);
+       }
+     }
+
+     // 加载调试脚本
+     loadDebuggingScript();
+     // 页面一加载就把本页的 script_uid 写进 URL：刷新后仍是同一个脚本（草稿与历史都不会"消失"），
+     // 而且不依赖"已经保存过"——uid 在服务端渲染时就确定了
+     syncScriptUrl();
+     // 记录主线初始展示，供切回主线时还原
+     captureMainBaseline();
+
+    // 重置调试信息和生成的脚本
+    function resetDebugInfo() {
+      // 重置生成的代码区域
+      generatedCode.textContent = '# 生成的脚本将显示在这里';
+      hljs.highlightElement(generatedCode);
+      // 重置映射区域
+      generatedMapping.textContent = '# 生成的映射将显示在这里';
+      hljs.highlightElement(generatedMapping);
+       // 禁用调试按钮、保存按钮和调试完成按钮
+       saveButton.disabled = true;
+       publishButton.disabled = true;
+       // 清空脚本描述
+       scriptIntro.value = '';
+       scriptIntro.classList.add('d-none');
+      // 重置调试日志
+      debugLogs.innerHTML = '<div class="text-muted font-monospace small">暂无日志</div>';
+      // 重置调试结果
+      debugResult.textContent = '暂无结果';
+      // 收起上一轮的"需要您确认"与最终建议
+      const prevQuestions = document.getElementById('user-questions');
+      if (prevQuestions) { prevQuestions.classList.add('d-none'); }
+      if (finalSuggestion) { finalSuggestion.classList.add('d-none'); }
+      // 隐藏错误信息
+      debugError.classList.add('d-none');
+      // 隐藏状态信息
+      debugStatus.classList.add('d-none');
+      // 重置隐藏字段
+      document.getElementById('command-mapping-filename').value = '';
+      document.getElementById('command-mapping-content').value = '';
+      // 清空分支测试结果（保留分支输入，便于调整后重跑）
+      resetBranchResults();
+      lastGeneratedBranchScenarios = [];
+      // 清空各场景的命令映射/日志/结果产物
+      Object.keys(scenarioArtifacts).forEach(function (key) { delete scenarioArtifacts[key]; });
+      // 收起评估结果面板（生成过程中会按场景重新渲染）
+      if (evaluationResult) { evaluationResult.classList.add('d-none'); }
+      // 基线同步为清空后的主线展示
+      captureMainBaseline();
+
+    }
+
+     // 根据"代码框里有没有真代码"刷新保存 / 调试完成 / 微调三个按钮的状态。
+     //
+     // 隐性知识：
+     //   1. 原来这个函数只会把按钮**打开**（有代码就 enable），从不关闭；而且只在"加载脚本"
+     //      与"评估通过"两处调用。现在的调用时机是：初始化、加载已保存脚本之后、生成成功/失败、
+     //      回滚（代码框变动由 MutationObserver 兜住）、以及"应用到主线描述"之后（那条路径是
+     //      程序化写 #user_prompt，既不触发 input 也不碰代码框，没人重算就会停在旧的禁用态）。
+     //   2. 微调按钮禁用时要能说明**为什么**：Bootstrap 的 tooltip 不会在 disabled 元素上弹出，
+     //      所以提示挂在外面那层 span 上（用原生 title，任何浏览器都稳）。
+     function codeReadyForActions() {
+       const code = generatedCode ? generatedCode.textContent.trim() : '';
+       return !!code && !code.startsWith('# 生成的脚本将显示在这里');
+     }
+
+     function refreshActionButtons() {
+       const ready = codeReadyForActions();
+       if (ready) {
+         saveButton.disabled = false;
+         publishButton.disabled = false;
+       }
+       if (refineButton) { refineButton.disabled = !ready; }
+       const wrap = document.getElementById('refine-button-wrap');
+       // 文案就写在这里，不要再提成模块级 const：这个函数在页面初始化早期（加载已保存脚本时）
+       // 就会被调用，那时后面的 const 还在 TDZ，读它会抛 ReferenceError —— 而那一层的 try
+       // 会把异常吞掉，表现成"脚本没加载出来、代码框还是占位文案"（实测踩过）。
+       if (wrap) {
+         wrap.title = ready
+           ? '按当前主线/分支描述，在已生成代码的基础上微调，并重新测试全部分支'
+           : '需要有已生成的脚本才能微调（可先点「自动化生成」）';
+       }
+     }
+
+     // 兼容旧调用点（生成成功、评估通过等处都在用它）
+     function enableSaveButtonIfNeeded() { refreshActionButtons(); }
+
+     // 按钮的"进行中"状态：换文案 + 转圈，并保证这段状态**至少可见 500ms**。
+     //
+     // 隐性知识：本地服务端几十毫秒就返回，spinner 一闪而过等于没有反馈——用户会以为"点了没动"
+     // （实测反馈）。所以最短可见时长要兜住，反馈才看得见。返回 Promise，调用方 await 它再收尾。
+     const MIN_BUTTON_BUSY_MS = 500;
+
+     function setButtonBusy(button, labelEl, idleLabel, busyLabel, busy) {
+       if (!button) { return Promise.resolve(); }
+       const spinner = button.querySelector('.spinner-border');
+       if (busy) {
+         button.dataset.busySince = String(Date.now());
+         if (labelEl) { labelEl.textContent = busyLabel; }
+         if (spinner) { spinner.classList.remove('d-none'); }
+         button.disabled = true;
+         return Promise.resolve();
+       }
+       const elapsed = Date.now() - Number(button.dataset.busySince || 0);
+       const wait = Math.max(0, MIN_BUTTON_BUSY_MS - elapsed);
+       return new Promise(function (resolve) {
+         setTimeout(function () {
+           if (spinner) { spinner.classList.add('d-none'); }
+           if (labelEl) { labelEl.textContent = idleLabel; }
+           button.disabled = false;
+           resolve();
+         }, wait);
+       });
+     }
+
+     // 按钮能不能点，只取决于"代码框里有没有代码"；而写入代码框的路径有好几条：生成、微调、
+     // 生成失败的兜底、回滚、加载历史脚本。
+     //
+     // 隐性知识：早先只在"加载脚本"和"评估通过"两处启用，于是**评估未通过时页面上有代码、
+     // 保存按钮却是灰的**（实测：改了脚本名称想存草稿，点不动保存）。改成盯着代码框：内容一变
+     // 就重新判定，不再依赖每个调用方都记得调用它。
+     if (generatedCode && window.MutationObserver) {
+       new MutationObserver(enableSaveButtonIfNeeded)
+         .observe(generatedCode, { childList: true, characterData: true, subtree: true });
+     }
+
+     // 当前代码框里的内容（占位文案也算内容，调用方各自判断是否还是占位）
+     function currentGeneratedCode() {
+       return generatedCode.textContent.trim();
+     }
+
+    // ==== 自动保存与版本历史 ====
+     // 业务逻辑：
+     //   生成/微调结束、以及用户编辑名称/描述/型号/需求后（防抖）自动落库，避免刷新丢内容；
+     //   服务端把每次生成、微调、自动保存、手动保存、调试完成、回滚都写成版本快照，这里负责
+     //   触发、显示状态，并提供「历史」弹框查看与回滚。
+     //
+     // 隐性知识：
+     //   1. 自动保存**不替代**「保存」按钮：保存会把状态打回未调试、按用户意图重置标签，而
+     //      自动保存只写内容（服务端 /scripts/autosave 刻意不动 publish_status 与 tags）。
+     //      生成完成后**不再弹"是否保存"询问框**——内容在生成结束那一刻已经落库，再问一次
+     //      只是多一次打扰；需要按表单内容正式保存时用户仍可点「保存」。
+     //   2. 服务端对没有归属的请求会跳过，此时仍走手动保存路径。
+     //   3. 发送前比内容指纹：内容没变就不发请求，否则光标动一下打一次服务端。
+     //   4. 自动保存失败**只提示不阻塞**：生成结果还在页面上，用户可以手动保存或重试。
+     let selectedVersionId = null;
+
+     function autoSaveSignature() {
+       const valueOf = function (id) {
+         const el = document.getElementById(id);
+         return el ? el.value.trim() : '';
+       };
+       return JSON.stringify({
+         name: valueOf('script_name'),
+         description: valueOf('script_intro'),
+         deviceModels: valueOf('device_models'),
+         initialPrompt: valueOf('user_prompt'),
+         code: currentGeneratedCode(),
+         mapping: valueOf('command-mapping-content')
+       });
+     }
+
+     function setAutosaveStatus(text, isError) {
+       if (!autosaveStatusEl) { return; }
+       autosaveStatusEl.textContent = text || '';
+       autosaveStatusEl.className = 'small align-self-center ' + (isError ? 'text-danger' : 'text-muted');
+     }
+
+     function enableHistoryButton() {
+       if (historyButton) { historyButton.disabled = false; }
+     }
+
+     // 把当前脚本的身份留在 URL 上（用 script_uid，不用数据库 id）。
+     //
+     // 隐性知识：服务端在**没有身份参数时每次都会新发一个 script_uid**（生成页要支持
+     // "生成新脚本"），所以刷新一次就换了身份：自动保存出来的草稿与历史都挂在旧 uid 上，
+     // 用户看到的就是"一刷新历史就没了"。script_uid 在进页面时就确定（那时数据库里还没有
+     // 这一行），所以页面**一加载就**把它写进 URL：刷新即回到同一个脚本，连"生成后还没保存"
+     // 也不丢；从「我的脚本」点「生成新脚本」是不带参数的 /scripts，仍是干净的新脚本。
+     function syncScriptUrl() {
+       const uidEl = document.getElementById('script-uid');
+       const uid = uidEl ? uidEl.value.trim() : '';
+       if (!uid) { return; }
+       const current = new URL(window.location.href);
+       if (current.searchParams.get('script_uid') === uid) { return; }
+       current.searchParams.set('script_uid', uid);
+       window.history.replaceState({}, '', current.pathname + '?' + current.searchParams.toString());
+     }
+
+     // 请求结果的读法：服务端不一定回 JSON——路由没加载会 404、
+     // 服务端异常会回 500 错误页，这些响应体都是 HTML。直接 response.json() 只会抛出
+     // "Unexpected token '<'"，对排查毫无帮助（实测踩过：迁移没跑时表不存在 → 500 错误页）。
+     async function readJson(response) {
+       const raw = await response.text();
+       try {
+         return { data: JSON.parse(raw), raw: raw };
+       } catch (e) {
+         return { data: null, raw: raw };
+       }
+     }
+
+     function requestFailureMessage(response, raw) {
+       if (response.redirected) { return '身份已失效（请求被重定向），请刷新页面重试'; }
+       if (response.status === 401) { return '会话已过期，请刷新页面重试'; }
+       if (response.status === 403) { return '当前账号无权操作（HTTP 403）'; }
+       if (response.status === 404) { return '接口不存在（改了路由需要重启服务端才生效）'; }
+       if (response.status >= 500) { return '服务端错误（HTTP ' + response.status + '），请看服务端日志'; }
+       return 'HTTP ' + response.status + '，返回的既不是 JSON 也不是预期内容';
+     }
+
+     async function autoSaveScript(source, options) {
+       const opts = options || {};
+       // 没有归属时服务端存不了，保持"手动保存"提示
+       if (!LOGGED_IN) { return; }
+       const code = currentGeneratedCode();
+       // 还没生成结果（代码框还是占位文案）时不保存：此时敲字只是在填描述/名称，
+       // 服务端也没有可存的内容，发了只会平白报一次错
+       if (!code || code.startsWith('# 生成的脚本将显示在这里')) { return; }
+
+       const signature = autoSaveSignature();
+       if (!opts.force && signature === lastAutoSavedSignature) { return; }
+
+       try {
+         const response = await fetch('/scripts/autosave', {
+           method: 'POST',
+           headers: {
+             'Content-Type': 'application/json',
+             // 必须显式要 JSON：未登录时 require_login 是 respond_to 分支，
+             // Accept 不带 application/json 会走 html 分支
+             'Accept': 'application/json',
+             'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+           },
+           body: JSON.stringify({
+             script_uid: document.getElementById('script-uid').value,
+             script_name: document.getElementById('script_name').value.trim(),
+             script_description: document.getElementById('script_intro').value.trim(),
+             initial_prompt: document.getElementById('user_prompt').value.trim(),
+             device_models: document.getElementById('device_models').value.trim(),
+             code: code,
+             command_mapping: document.getElementById('command-mapping-content').value,
+             branch_scenarios: JSON.stringify(collectBranchScenariosForSave()),
+             source: source || 'autosave'
+           })
+         });
+         const parsed = await readJson(response);
+         const data = parsed.data;
+         if (!data) {
+           console.error('[autosave] 服务端返回的不是 JSON：HTTP ' + response.status, String(parsed.raw).slice(0, 200));
+           setAutosaveStatus('自动保存未生效：' + requestFailureMessage(response, parsed.raw), true);
+           return;
+         }
+         if (!data.success) {
+           setAutosaveStatus('自动保存失败：' + (data.error || '未知错误'), true);
+           return;
+         }
+         lastAutoSavedSignature = signature;
+         enableHistoryButton();
+         const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+         // 显示**版本号**（vX.Y.Z）：这才是"这一版是哪一版"，客户端下载后看到的就是它；
+         // rN 是快照序号，只在版本历史弹窗里用。快照没记上时如实说明。
+         const versionLabel = data.version ? ('v' + data.version) : null;
+         setAutosaveStatus(data.history_saved === false
+           ? ('已自动保存 ' + time + '（' + (versionLabel ? versionLabel + '，' : '') + '本次未记入历史）')
+           : ('已自动保存 ' + time + '（' + (versionLabel || ('r' + data.revision)) + '）'));
+       } catch (e) {
+         setAutosaveStatus('自动保存失败：' + e.message, true);
+       }
+     }
+
+     function scheduleAutoSave() {
+       if (autoSaveTimer) { clearTimeout(autoSaveTimer); }
+       autoSaveTimer = setTimeout(function () { autoSaveScript('autosave'); }, AUTOSAVE_DEBOUNCE_MS);
+     }
+
+     ['script_name', 'script_intro', 'device_models', 'user_prompt'].forEach(function (id) {
+       const el = document.getElementById(id);
+       if (el) { el.addEventListener('input', scheduleAutoSave); }
+     });
+
+     // ==== 版本历史弹框：列表 / 查看 / 回滚 ====
+     function versionModalEl() { return document.getElementById('version-history-modal'); }
+
+     // 把某条版本的内容铺回页面（回滚后、或预览时都需要）
+     function applyVersionContent(version) {
+       if (!version || version.code === undefined) { return; }
+       generatedCode.textContent = version.code || '';
+       hljs.highlightElement(generatedCode);
+       if (version.name != null) { document.getElementById('script_name').value = version.name; }
+       if (version.description != null) { document.getElementById('script_intro').value = version.description; }
+       // 主线描述一并还原，否则页面会呈现"旧代码 + 新需求"的组合
+       if (version.initial_prompt != null) { document.getElementById('user_prompt').value = version.initial_prompt; }
+       // 设备型号：一并还原（同样要重建多选控件的 chips）
+       document.getElementById('device_models').value = (version.device_models || []).join(', ');
+       if (window.DeviceModelPicker) { window.DeviceModelPicker.syncFromInput(); }
+       if (version.command_mapping) {
+         const mappingStr = JSON.stringify(version.command_mapping, null, 2);
+         generatedMapping.textContent = mappingStr;
+         document.getElementById('command-mapping-content').value = mappingStr;
+         hljs.highlightElement(generatedMapping);
+         setScenarioArtifact('main', { command_mapping: version.command_mapping });
+       }
+       if (version.branch_scenarios) {
+         setBranches(version.branch_scenarios);
+         lastGeneratedBranchScenarios = version.branch_scenarios;
+       }
+       lastAutoSavedSignature = autoSaveSignature();
+     }
+
+     // 弹框顶部那句"当前是谁、有几条历史"。
+     //
+     // 隐性知识：历史看起来"空"时，用户第一反应是"历史丢了"，而真正的原因往往是**这个页面
+     // 根本是另一个脚本**（比如刚点过「生成新脚本」）。所以把脚本名与 uid 前 8 位写出来，
+     // 让判断依据直接摆在眼前。
+     function renderVersionSummary(extra) {
+       const summaryEl = document.getElementById('version-history-summary');
+       if (!summaryEl) { return; }
+       const uidEl = document.getElementById('script-uid');
+       const uid = uidEl ? uidEl.value.trim() : '';
+       const nameEl = document.getElementById('script_name');
+       const name = nameEl && nameEl.value.trim() ? nameEl.value.trim() : '未命名';
+       summaryEl.textContent = '当前脚本：' + name + '（uid ' +
+         (uid ? uid.slice(0, 8) + '…' : '无') + '）· ' + extra;
+     }
+
+     async function loadVersionHistory() {
+       const listEl = document.getElementById('version-history-list');
+       if (!listEl) { return; }
+       listEl.innerHTML = '<div class="text-muted small p-2">加载中…</div>';
+       renderVersionSummary('加载中…');
+       try {
+         const uid = document.getElementById('script-uid').value;
+         const response = await fetch('/scripts/versions?script_uid=' + encodeURIComponent(uid), {
+           headers: { 'Accept': 'application/json' }
+         });
+         const parsed = await readJson(response);
+         const data = parsed.data;
+         if (!data) {
+           renderVersionSummary('读取失败');
+           listEl.innerHTML = '<div class="text-danger small p-2">' +
+             escapeHtml('加载失败：' + requestFailureMessage(response, parsed.raw)) + '</div>';
+           return;
+         }
+         if (!data.success) {
+           renderVersionSummary('读取失败');
+           listEl.innerHTML = '<div class="text-danger small p-2">' + escapeHtml(data.error || '加载失败') + '</div>';
+           return;
+         }
+         renderVersionSummary('共 ' + data.data.length + ' 条，当前 r' + (data.revision || 0));
+         if (data.data.length === 0) {
+           // 空态要说清原因：脚本可能是新建的（还没保存过），或确实还没有任何内容变更
+           listEl.innerHTML = '<div class="text-muted small p-2">这个脚本还没有历史版本。' +
+             '生成、微调、自动保存、手动保存或标记调试完成后会自动记录；' +
+             '如果你刚在「生成新脚本」的新页面上，那是另一个脚本，它的历史是空的。</div>';
+           return;
+         }
+         listEl.innerHTML = data.data.map(function (v) {
+           // 描述没变时新内容只刷新当前版本，于是 updated_at 会晚于 created_at：
+           // 两者不同就标出来，用户能看出"这条版本后来又被改过"
+           const created = String(v.created_at || '').replace('T', ' ').slice(0, 16);
+           const updated = String(v.updated_at || '').replace('T', ' ').slice(0, 16);
+           const time = (updated && updated !== created) ? (updated + '（更新）') : created;
+           // 第二行放主线描述摘要：列表要让人一眼看出这一版"要做什么"，名称（往往几版都一样）
+           // 和代码都做不到；名称挪到 title 里备查
+           const summary = v.initial_prompt_excerpt || '（没有记录主线描述）';
+           const hover = (v.name || '未命名脚本') + '：' + summary;
+           return '<button type="button" class="list-group-item list-group-item-action version-item" data-version-id="' + v.id + '" title="' + escapeAttr(hover) + '">' +
+             '<div class="d-flex justify-content-between gap-2">' +
+               '<span class="fw-medium">r' + v.revision + ' · ' + escapeHtml(v.source_label) + '</span>' +
+               '<span class="text-muted small">' + escapeHtml(time) + '</span>' +
+             '</div>' +
+             '<div class="small text-muted text-truncate">' + escapeHtml(summary) + '</div>' +
+           '</button>';
+         }).join('');
+       } catch (e) {
+         listEl.innerHTML = '<div class="text-danger small p-2">' + escapeHtml(e.message) + '</div>';
+       }
+     }
+
+     // 行级差异渲染：added 绿底带 +、removed 红底带 −、same 灰
+     function renderLineDiff(ops) {
+       if (!ops || ops.length === 0) { return ''; }
+       const rows = ops.map(function (op) {
+         const mark = op.op === 'added' ? '+' : (op.op === 'removed' ? '−' : ' ');
+         const cls = op.op === 'added' ? 'bg-success bg-opacity-10 text-success'
+           : (op.op === 'removed' ? 'bg-danger bg-opacity-10 text-danger' : 'text-muted');
+         return '<div class="' + cls + '">' + escapeHtml(mark + ' ' + op.text) + '</div>';
+       }).join('');
+       return '<div class="font-monospace small border rounded p-2" ' +
+         'style="max-height: 24vh; overflow: auto; white-space: pre-wrap;">' + rows + '</div>';
+     }
+
+     // 差异块：分支描述（重点）→ 主线描述 → 其他字段 → 代码
+     //
+     // 隐性知识：版本由"描述"驱动，所以顺序按"改了什么需求"排：分支描述与主线描述在前，
+     // 代码放最后且默认折叠（两版之间代码常整体重写，铺开会把描述差异淹没）。
+     function renderVersionDiff(diff) {
+       const box = document.getElementById('version-detail-diff');
+       if (!box) { return; }
+       if (!diff) { box.innerHTML = ''; return; }
+       if (diff.first) {
+         box.innerHTML = '<div class="small text-muted">r' + diff.to_revision +
+           ' 是最早的版本，没有可对比的上一版。</div>';
+         return;
+       }
+
+       const parts = ['<div class="small fw-medium mb-2">与 r' + diff.from_revision + ' 的差异</div>'];
+
+       // ① 分支描述
+       const branches = diff.branches || {};
+       const lines = [];
+       (branches.changed || []).forEach(function (item) {
+         lines.push('<div>「' + escapeHtml(item.name) + '」：' +
+           '<span class="text-danger text-decoration-line-through">' + escapeHtml(item.before) + '</span>' +
+           ' → <span class="text-success">' + escapeHtml(item.after) + '</span></div>');
+       });
+       (branches.added || []).forEach(function (item) {
+         lines.push('<div class="text-success">+ 「' + escapeHtml(item.name) + '」' +
+           (item.description ? '：' + escapeHtml(item.description) : '') + '</div>');
+       });
+       (branches.removed || []).forEach(function (item) {
+         lines.push('<div class="text-danger">− 「' + escapeHtml(item.name) + '」' +
+           (item.description ? '：' + escapeHtml(item.description) : '') + '</div>');
+       });
+       const changedCount = (branches.changed || []).length + (branches.added || []).length +
+         (branches.removed || []).length;
+       const unchanged = branches.unchanged_count || 0;
+       if (changedCount === 0) {
+         lines.push('<div class="text-muted">' +
+           (unchanged > 0 ? ('分支描述没有变化（' + unchanged + ' 个）') : '两版都没有分支') + '</div>');
+       } else if (unchanged > 0) {
+         lines.push('<div class="text-muted">另有 ' + unchanged + ' 个分支描述未变</div>');
+       }
+       parts.push('<div class="small mb-2"><div class="text-muted mb-1">分支描述</div>' + lines.join('') + '</div>');
+
+       // ② 主线描述
+       const mainline = diff.mainline || {};
+       if (mainline.changed) {
+         parts.push('<div class="small mb-2"><div class="text-muted mb-1">主线描述（红=改动前，绿=改动后）</div>' +
+           renderLineDiff(mainline.lines) + '</div>');
+       } else {
+         parts.push('<div class="small text-muted mb-2">主线描述没有变化</div>');
+       }
+
+       // ③ 其他字段
+       const fields = diff.fields || [];
+       if (fields.length > 0) {
+         parts.push('<div class="small mb-2"><div class="text-muted mb-1">其他变化</div>' +
+           fields.map(function (field) {
+             return '<div>' + escapeHtml(field.label) + '：' +
+               '<span class="text-danger text-decoration-line-through">' + escapeHtml(field.before || '（空）') + '</span>' +
+               ' → <span class="text-success">' + escapeHtml(field.after || '（空）') + '</span></div>';
+           }).join('') + '</div>');
+       }
+
+       // ④ 代码（默认折叠）
+       const code = diff.code || {};
+       if (code.changed) {
+         parts.push('<details class="small"><summary class="text-muted">代码已变更（+' + code.added +
+           ' / −' + code.removed + ' 行，点击展开差异）</summary><div class="mt-1">' +
+           renderLineDiff(code.lines) + '</div></details>');
+       } else {
+         parts.push('<div class="small text-muted">代码未变</div>');
+       }
+
+       box.innerHTML = parts.join('');
+     }
+
+     async function showVersionDetail(versionId) {
+       if (!versionId) { return; }
+       const titleEl = document.getElementById('version-detail-title');
+       const metaEl = document.getElementById('version-detail-meta');
+       const codeEl = document.getElementById('version-detail-code');
+       const rollbackButton = document.getElementById('version-rollback-button');
+       renderVersionDiff(null);   // 先清空，避免上一个版本的差异留在屏上
+       try {
+         const uid = document.getElementById('script-uid').value;
+         const response = await fetch('/scripts/version?script_uid=' + encodeURIComponent(uid) +
+           '&version_id=' + encodeURIComponent(versionId), { headers: { 'Accept': 'application/json' } });
+         const parsed = await readJson(response);
+         const data = parsed.data;
+         if (!data) {
+           if (titleEl) { titleEl.textContent = '加载失败：' + requestFailureMessage(response, parsed.raw); }
+           return;
+         }
+         if (!data.success) {
+           if (titleEl) { titleEl.textContent = data.error || '加载失败'; }
+           return;
+         }
+         const v = data.data;
+         selectedVersionId = v.id;
+         const isCurrent = v.revision === data.current_revision;
+         if (titleEl) { titleEl.textContent = 'r' + v.revision + ' · ' + v.source_label + (isCurrent ? '（当前版本）' : ''); }
+         if (metaEl) {
+           metaEl.textContent = String(v.created_at || '').replace('T', ' ').slice(0, 19) +
+             (v.description ? '　' + v.description : '');
+         }
+         if (codeEl) {
+           codeEl.textContent = v.code || '';
+           hljs.highlightElement(codeEl);
+         }
+         const promptEl = document.getElementById('version-detail-prompt');
+         if (promptEl) {
+           promptEl.textContent = v.initial_prompt || '（这个版本没有记录主线描述）';
+         }
+         if (rollbackButton) {
+           // 回滚到当前版本没有意义，隐藏按钮
+           rollbackButton.classList.toggle('d-none', isCurrent);
+         }
+         renderVersionDiff(data.diff);
+       } catch (e) {
+         if (titleEl) { titleEl.textContent = '加载失败：' + e.message; }
+       }
+     }
+
+     async function rollbackToVersion(versionId) {
+       if (!versionId) { return; }
+       if (!confirm('确定回滚到该版本吗？当前内容会被它覆盖。历史不会丢——回滚本身也会记一条。')) { return; }
+       try {
+         const response = await fetch('/scripts/rollback', {
+           method: 'POST',
+           headers: {
+             'Content-Type': 'application/json',
+             'Accept': 'application/json',
+             'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+           },
+           body: JSON.stringify({
+             script_uid: document.getElementById('script-uid').value,
+             version_id: versionId
+           })
+         });
+         const parsed = await readJson(response);
+         const data = parsed.data;
+         if (!data) {
+           alert('回滚未生效：' + requestFailureMessage(response, parsed.raw));
+           return;
+         }
+         if (!data.success) {
+           alert('回滚失败：' + (data.error || '未知错误'));
+           return;
+         }
+         applyVersionContent(data.data);
+         // 服务端回滚会把状态退回"调试中"，页面同步（否则徽标还显示调试完成）
+         setScriptStatus('debugging');
+         setAutosaveStatus(data.history_saved === false
+           ? ('已回滚到 r' + data.rolled_back_from + '（本次未记入历史）')
+           : ('已回滚到 r' + data.rolled_back_from + '（本次记为 r' + data.revision + '）'));
+         await loadVersionHistory();
+         await showVersionDetail(data.data.id);
+       } catch (e) {
+         alert('回滚失败：' + e.message);
+       }
+     }
+
+     if (historyButton) {
+       historyButton.addEventListener('click', function () {
+         const modalEl = versionModalEl();
+         if (!modalEl) { return; }
+         bootstrap.Modal.getOrCreateInstance(modalEl).show();
+         loadVersionHistory();
+       });
+     }
+
+     const versionHistoryListEl = document.getElementById('version-history-list');
+     if (versionHistoryListEl) {
+       versionHistoryListEl.addEventListener('click', function (e) {
+         const item = e.target.closest('.version-item');
+         if (item) { showVersionDetail(item.getAttribute('data-version-id')); }
+       });
+     }
+
+     const versionRollbackButton = document.getElementById('version-rollback-button');
+     if (versionRollbackButton) {
+       versionRollbackButton.addEventListener('click', function () { rollbackToVersion(selectedVersionId); });
+     }
+
+     // ==== 保存后的提示气泡（箭头指向按钮，5 秒自动消失） ====
+     // 保存后不再弹框询问"调试是否已完成"：只在「调试完成」按钮上方浮出提示，
+     // 箭头指向该按钮；需要标记"调试完成"时用户仍可点这个按钮。
+     let transientToastTimer = null;
+
+     // 把气泡放在锚点元素上方（空间不足则放下方），箭头对准锚点中心。
+     // 箭头用 CSS 三角（border）而不是旋转方块：长度/宽度可分别控制，看起来更明显。
+     function positionTransientToast(anchorEl) {
+       const box = document.getElementById('transient-toast');
+       const arrow = document.getElementById('transient-toast-arrow');
+       if (!box || !arrow || !anchorEl) { return false; }
+
+       const rect = anchorEl.getBoundingClientRect();
+       const boxWidth = box.offsetWidth;
+       const boxHeight = box.offsetHeight;
+       // 箭头长度 = 提示框高度的 66%（随文案换行后的实际高度变化）
+       const arrowLength = Math.max(18, Math.round(boxHeight * 0.66));
+       const arrowBase = 28;     // 箭头底边宽度
+       const gap = arrowLength + 4;
+
+       let left = Math.round(rect.left + rect.width / 2 - boxWidth / 2);
+       left = Math.max(8, Math.min(left, window.innerWidth - boxWidth - 8));
+
+       let above = true;
+       let top = Math.round(rect.top - boxHeight - gap);
+       if (top < 8) { above = false; top = Math.round(rect.bottom + gap); }
+
+       box.style.transform = 'none';
+       box.style.left = left + 'px';
+       box.style.top = top + 'px';
+
+       // 箭头颜色跟随气泡底色；用 border 画三角
+       const color = getComputedStyle(document.getElementById('transient-toast-body')).backgroundColor;
+       arrow.style.borderLeft = (arrowBase / 2) + 'px solid transparent';
+       arrow.style.borderRight = (arrowBase / 2) + 'px solid transparent';
+       if (above) {
+         arrow.style.borderTop = arrowLength + 'px solid ' + color;
+         arrow.style.borderBottom = '0';
+         arrow.style.top = boxHeight + 'px';
+       } else {
+         arrow.style.borderBottom = arrowLength + 'px solid ' + color;
+         arrow.style.borderTop = '0';
+         arrow.style.top = (-arrowLength) + 'px';
+       }
+
+       // 箭头中心对准锚点中心（并保证三角形不超出气泡左右边界）
+       const anchorCenter = rect.left + rect.width / 2;
+       const arrowCenter = Math.max(
+         left + arrowBase / 2 + 4,
+         Math.min(anchorCenter, left + boxWidth - arrowBase / 2 - 4)
+       );
+       // border 三角的 apex 在 border-left 之后（即底边左端 + arrowBase/2），
+       // 因此这里要再减掉半个底边，才能让箭头尖对准锚点中心
+       arrow.style.left = Math.round(arrowCenter - left - arrowBase / 2) + 'px';
+       return true;
+     }
+
+     function showTransientToast(message, type, durationMs, anchorEl) {
+       const box = document.getElementById('transient-toast');
+       const body = document.getElementById('transient-toast-body');
+       const arrow = document.getElementById('transient-toast-arrow');
+       if (!box || !body) { showStatus(message, type); return; }
+
+       // 用实心高对比配色（text-bg-*）：浅色 alert 半透明、看不清
+       const styleMap = {
+         info: 'text-bg-primary',
+         success: 'text-bg-success',
+         warning: 'text-bg-warning',
+         danger: 'text-bg-danger'
+       };
+       body.className = 'rounded shadow-lg py-4 px-5 fs-4 fw-semibold ' + (styleMap[type] || 'text-bg-primary');
+       body.textContent = message;
+       // 箭头颜色在 positionTransientToast 里按气泡底色设置（border 三角）
+
+       box.classList.remove('d-none');
+       const anchored = anchorEl && positionTransientToast(anchorEl);
+       if (!anchored) {
+         // 没给锚点（或锚点不可用）时退回屏幕居中
+         box.style.left = '50%';
+         box.style.top = '50%';
+         box.style.transform = 'translate(-50%, -50%)';
+         if (arrow) { arrow.style.display = 'none'; }
+       } else {
+         if (arrow) { arrow.style.display = ''; }
+         // 首帧测量时布局可能尚未稳定（宽度会变），下一帧用最终尺寸再校正一次
+         if (window.requestAnimationFrame) {
+           window.requestAnimationFrame(function () { positionTransientToast(anchorEl); });
+         }
+       }
+
+       if (transientToastTimer) { clearTimeout(transientToastTimer); }
+       transientToastTimer = setTimeout(function () {
+         box.classList.add('d-none');
+         transientToastTimer = null;
+       }, durationMs || 5000);
+     }
+
+     // 窗口尺寸变化时，若气泡还显示着就重新对准按钮
+     window.addEventListener('resize', function () {
+       const box = document.getElementById('transient-toast');
+       if (!box || box.classList.contains('d-none')) { return; }
+       positionTransientToast(document.getElementById('publish-button'));
+     });
+
+     // 脚本调试状态徽标：调试中 / 调试完成
+     function setScriptStatus(status) {
+       const badge = document.getElementById('script-status-badge');
+       if (!badge) { return; }
+       const done = status === 'debugged';
+       badge.textContent = done ? '调试完成' : '调试中';
+       badge.className = 'badge align-self-center ' + (done ? 'text-bg-success' : 'text-bg-warning');
+     }
+
+
+
+      // 调试完成按钮点击
+      publishButton.addEventListener('click', async function() {
+        // 收集所有信息
+        const scriptName = document.getElementById('script_name').value.trim();
+        const scriptDesc = document.getElementById('script_intro').value.trim();
+        const initialPrompt = document.getElementById('user_prompt').value.trim();
+        const code = generatedCode.textContent;
+       const deviceModels = document.getElementById('device_models').value.trim();
+       const commandMapping = document.getElementById('command-mapping-content').value;
+
+       // 验证必填字段
+       if (!scriptName) {
+         alert('请输入脚本名称');
+         return;
+       }
+       if (!scriptDesc) {
+         alert('请输入脚本描述');
+         return;
+       }
+       if (!deviceModels) {
+         alert('请输入支持的设备型号');
+         return;
+       }
+       if (!code || code.startsWith('# 生成的脚本将显示在这里')) {
+         alert('请先生成或输入脚本代码');
+         return;
+       }
+
+       // 确认标记为调试完成
+      if (!confirm('确定要标记为调试完成吗？标记后脚本可以被任务执行。')) {
+        return;
+      }
+
+      // 显示加载状态（同样保证最短可见时长）
+      const publishButtonLabel = document.getElementById('publish-button-label');
+      await setButtonBusy(publishButton, publishButtonLabel, '调试完成', '标记中…', true);
+
+      try {
+        const response = await fetch('/scripts/debug_complete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+          },
+          body: JSON.stringify({
+            script_uid: document.getElementById('script-uid').value,
+            script_name: scriptName,
+            script_description: scriptDesc,
+            initial_prompt: initialPrompt,
+            code: code,
+            device_models: deviceModels,
+            command_mapping: commandMapping,
+            branch_scenarios: JSON.stringify(collectBranchScenariosForSave())
+          })
+        });
+
+         const data = await response.json();
+         if (data.success) {
+           // 手动保存也进历史（服务端记 source=manual），这里放开历史入口并对齐自动保存基线
+           enableHistoryButton();
+           lastAutoSavedSignature = autoSaveSignature();
+           setScriptStatus('debugged');
+           showTransientToast('脚本调试状态已变更为「调试完成」', 'success', 5000, publishButton);
+           // 清空调试脚本 ID（身份已由 script_uid 承担）
+         } else {
+           alert('标记失败：' + data.error);
+           showStatus('标记失败：' + data.error, 'danger');
+         }
+      } catch (error) {
+        console.error(error);
+        alert('调试完成失败：' + error.message);
+        showStatus('调试完成失败：' + error.message, 'danger');
+      } finally {
+        await setButtonBusy(publishButton, publishButtonLabel, '调试完成', '标记中…', false);
+      }
+    });
+
+    // 保存按钮点击
+    saveButton.addEventListener('click', async function() {
+       // 收集所有信息
+       const scriptName = document.getElementById('script_name').value.trim();
+       const scriptDesc = document.getElementById('script_intro').value.trim();
+       const initialPrompt = document.getElementById('user_prompt').value.trim();
+       const code = generatedCode.textContent;
+      const deviceModels = document.getElementById('device_models').value.trim();
+      const commandMapping = document.getElementById('command-mapping-content').value;
+
+       // 验证必填字段
+       if (!scriptName) {
+         alert('请输入脚本名称');
+         return;
+       }
+       // 设备型号不在这里卡：保存出来的是草稿（调试中），型号留到「调试完成」时必填
+       // （否则会出现"自动保存成功了、点保存却说型号不能为空"的矛盾）
+
+      // 获取调试日志
+      const sandboxDebugLog = Array.from(debugLogs.querySelectorAll('.font-monospace.small'))
+        .map(el => el.textContent)
+        .join('\n');
+
+      // 获取调试结果
+      let debugExecutionResult = null;
+      const resultText = debugResult.textContent;
+      if (resultText && resultText !== '暂无结果') {
+        try {
+          // 尝试解析结果
+          const parsedResult = JSON.parse(resultText);
+          debugExecutionResult = JSON.stringify({ test_result: parsedResult });
+        } catch (e) {
+          // 如果解析失败，直接存储文本
+          debugExecutionResult = JSON.stringify({ test_result: resultText });
+        }
+      }
+
+      // 显示加载状态（至少可见 0.5s，否则本地服务几十毫秒返回，用户看不到任何反馈）
+      const saveButtonLabel = document.getElementById('save-button-label');
+      await setButtonBusy(saveButton, saveButtonLabel, '保存', '保存中…', true);
+
+       try {
+         const response = await fetch('/scripts/save', {
+           method: 'POST',
+           headers: {
+             'Content-Type': 'application/json',
+             'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+           },
+           body: JSON.stringify({
+             script_uid: document.getElementById('script-uid').value,
+             script_name: scriptName,
+             script_description: scriptDesc,
+             initial_prompt: initialPrompt,
+             code: code,
+             device_models: deviceModels,
+             command_mapping: commandMapping,
+             branch_scenarios: JSON.stringify(collectBranchScenariosForSave()),
+             sandbox_debug_log: sandboxDebugLog,
+             debug_execution_result: debugExecutionResult
+           })
+         });
+
+        const data = await response.json();
+        if (data.success) {
+          // 手动保存也进历史（服务端记 source=manual），放开历史入口并对齐自动保存基线
+          enableHistoryButton();
+          lastAutoSavedSignature = autoSaveSignature();
+          publishButton.disabled = false;
+          // 保存后状态回到"调试中"，气泡提示箭头指向「调试完成」按钮
+          setScriptStatus('debugging');
+          showTransientToast('已保存' + (data.version ? '（v' + data.version + '）' : '') +
+            '，脚本调试状态已改为调试中，请发布脚本前将状态变更为已调试', 'info', 5000, publishButton);
+        } else {
+          alert('保存失败：' + data.error);
+          showStatus('保存失败：' + data.error, 'danger');
+        }
+      } catch (error) {
+        console.error(error);
+        alert('保存失败：' + error.message);
+        showStatus('保存失败：' + error.message, 'danger');
+      } finally {
+        await setButtonBusy(saveButton, saveButtonLabel, '保存', '保存中…', false);
+      }
+    });
+
+
+
+
+    // 辅助函数：显示状态消息
+    function showStatus(message, type) {
+      statusText.textContent = message;
+      debugStatus.className = 'alert alert-' + type + ' border-0';
+      debugStatus.classList.remove('d-none');
+    }
+
+    // 辅助函数：HTML 转义
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // 辅助函数：处理评估结果文本，转义 HTML 并将换行符转换为 <br>
+    function formatEvaluationText(text) {
+      if (!text) return '';
+      // 后端已经处理了转义字符，直接转义 HTML 并转换换行
+      return escapeHtml(text).replace(/\n/g, '<br>');
+    }
+
+    // 结论是模型写的一整段散文：实测它用句号断句、一个分号都没有，只按分号拆等于没拆，
+    // 所以句号/分号/换行都当分隔符，一条一行。
+    function conclusionLines(text) {
+      return String(text == null ? '' : text)
+        .split(/[。；;！？!?\n]/)
+        .map(function (s) { return s.trim(); })
+        .filter(function (s) { return s.length > 0; });
+    }
+
+    // 去掉空条目，得到真正会渲染成行的内容（折叠摘要里的条数也用它算，避免与实际行数不一致）
+    function cleanLines(items) {
+      return (Array.isArray(items) ? items : [items])
+        .map(function (item) { return String(item == null ? '' : item).trim(); })
+        .filter(function (item) { return item.length > 0; });
+    }
+
+    // 带序号的列表：一条占一行。
+    // 数组里的每项本身就是模型分好的一条，不再二次拆分——否则一条建议里的分号会被拆成
+    // 两个序号，看起来像两条建议。
+    function numberedLines(items) {
+      const lines = cleanLines(items);
+      if (lines.length === 0) { return ''; }
+      return '<ol class="mb-0 ps-3">' + lines.map(function (line) {
+        return '<li class="mb-1">' + formatEvaluationText(line) + '</li>';
+      }).join('') + '</ol>';
+    }
+
+    // 评估面板正文（三处渲染共用同一份结构，避免各写一套后长短不一）：
+    // 结论/问题/建议都放进同一个默认折叠块——它们都是"想细看才看"的内容，全铺在外面会把面板
+    // 撑得很长；未达成条目不折叠，它是失败原因本身，必须一眼可见。
+    function buildEvaluationHtml(evaluation) {
+      const ev = evaluation || {};
+      const conclusion = conclusionLines(ev.evaluation || '');
+      const issues = cleanLines(ev.issues);
+      const suggestions = cleanLines(ev.suggestions);
+
+      const items = Array.isArray(ev.items) ? ev.items : [];
+      const failed = items
+        .filter(function (it) { return it && it.passed === false; })
+        .map(function (it) { return it.requirement || ''; });
+
+      let html = '';
+      const failedList = numberedLines(failed);
+      if (failedList) {
+        html += '<div class="small text-danger mt-2"><strong>未达成（' + failed.length + ' 条）：</strong>' +
+          failedList + '</div>';
+      }
+
+      const counts = [];
+      if (conclusion.length > 0) { counts.push('结论 ' + conclusion.length + ' 条'); }
+      if (issues.length > 0) { counts.push('问题 ' + issues.length + ' 条'); }
+      if (suggestions.length > 0) { counts.push('建议 ' + suggestions.length + ' 条'); }
+      if (counts.length === 0) { return html; }
+
+      html += '<details class="eval-detail' + (failedList ? ' mt-2' : '') + '">' +
+        '<summary class="small text-muted">查看评估详情（' + counts.join(' · ') + '）</summary>' +
+        '<div class="pt-2">';
+      if (conclusion.length > 0) {
+        html += numberedLines(conclusion);
+      }
+      if (issues.length > 0) {
+        // 问题多为"非本次需求范围"的提示，不是失败原因，用红色会显得比"未达成"还严重
+        html += '<div class="small text-warning-emphasis mt-2"><strong>问题：</strong>' + numberedLines(issues) + '</div>';
+      }
+      if (suggestions.length > 0) {
+        html += '<div class="small text-info-emphasis mt-2"><strong>建议：</strong>' + numberedLines(suggestions) + '</div>';
+      }
+      html += '</div></details>';
+      return html;
+    }
+
+    // 辅助函数：根据脚本描述生成建议的脚本名称
+    function generateScriptName(description) {
+      if (!description) return '';
+      // 移除换行符和多余空白
+      const cleanDesc = description.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+      // 取前30个字符，如果描述更长则加省略号
+      if (cleanDesc.length <= 30) {
+        return cleanDesc;
+      }
+      // 尝试在标点或空格处截断，保持完整性
+      const truncated = cleanDesc.substring(0, 30);
+      const lastSpace = truncated.lastIndexOf(' ');
+      const lastPunct = truncated.lastIndexOf('，');
+      const lastPunctIndex = Math.max(lastSpace, lastPunct);
+      if (lastPunctIndex > 15) {
+        return cleanDesc.substring(0, lastPunctIndex) + '...';
+      }
+      return truncated + '...';
+    }
+
+    // ===== 自动化生成功能 =====
+    const autoGenerateButton = document.getElementById('auto-generate-button');
+    const autoProgress = document.getElementById('auto-progress');
+    const autoStatusText = document.getElementById('auto-status-text');
+    const autoSpinner = document.getElementById('auto-spinner');
+    const autoProgressBar = document.getElementById('auto-progress-bar');
+    const autoAttemptInfo = document.getElementById('auto-attempt-info');
+    const evaluationResult = document.getElementById('evaluation-result');
+    const evalHeader = document.getElementById('eval-header');
+    const evalContent = document.getElementById('eval-content');
+    const finalSuggestion = document.getElementById('final-suggestion');
+    const suggestionText = document.getElementById('suggestion-text');
+
+    // 展示"需要您确认"的问题（脚本与平台都拿不到的信息，回抛给用户而不是自己编）
+    function renderUserQuestions(questions) {
+      const box = document.getElementById('user-questions');
+      const list = document.getElementById('user-questions-list');
+      if (!box || !list) { return; }
+      const items = (questions || []).filter(q => q && String(q).trim() !== '');
+      if (items.length === 0) { box.classList.add('d-none'); list.innerHTML = ''; return; }
+      list.innerHTML = items.map(q => '<li>' + escapeHtml(String(q)) + '</li>').join('');
+      box.classList.remove('d-none');
+    }
+
+
+    // 重置自动化流程UI
+    function resetAutoProgress() {
+      autoProgress.classList.add('d-none');
+      autoProgressBar.style.width = '0%';
+      autoSpinner.classList.remove('d-none');
+      evaluationResult.classList.add('d-none');
+      finalSuggestion.classList.add('d-none');
+      autoAttemptInfo.textContent = '';
+      // 清除内容
+      evalContent.innerHTML = '';
+      suggestionText.textContent = '';
+    }
+
+    // 更新进度
+    function updateAutoProgress(percent, status, attemptInfo) {
+      autoProgressBar.style.width = percent + '%';
+      autoStatusText.textContent = status;
+      if (attemptInfo) {
+        autoAttemptInfo.textContent = attemptInfo;
+      }
+    }
+
+    // 通用的生成处理函数 - 使用 fetch POST + ReadableStream
+    async function handleGenerate(options) {
+      const refineMode = !!(options && options.refine);
+      const description = userPromptTextarea.value.trim();
+
+      const scriptName = document.getElementById('script_name').value.trim();
+      const scriptDescription = document.getElementById('script_intro').value.trim();
+      const deviceModels = document.getElementById('device_models').value.trim();
+
+      // 微调：必须在已有生成代码的基础上进行
+      const currentCode = generatedCode.textContent.trim();
+      const hasCode = !!currentCode && !currentCode.startsWith('# 生成的脚本将显示在这里');
+      if (refineMode && !hasCode) {
+        alert('请先生成脚本，再使用「微调」');
+        return;
+      }
+        // 已经有生成结果时先问一句：重新生成（覆盖当前代码），还是改成微调（在既有代码上改，改动更小）。
+        // force 由确认弹窗里「重新生成」那个按钮带来，用来跳过这次询问。
+        if (hasCode && !refineMode && !(options && options.force)) {
+          const confirmModal = document.getElementById('regenerate-confirm-modal');
+          if (confirmModal) {
+            bootstrap.Modal.getOrCreateInstance(confirmModal).show();
+            return;
+          }
+        }
+      if (!description) {
+        alert('请先填写主线任务描述');
+        return;
+      }
+
+      // BYOK：生成消耗的是用户自己的 LLM 额度，因此本浏览器必须先有 Key。
+      // 在这里提前拦住并把引导卡片显示出来，好过让服务端返回一个费解的错误。
+      if (typeof LlmKeyStore === 'undefined' || !LlmKeyStore.isSupported()) {
+        alert(typeof LlmKeyStore !== 'undefined'
+          ? LlmKeyStore.unsupportedReason()
+          : '本页面的加密模块未加载，请刷新重试');
+        return;
+      }
+      const llmKey = await LlmKeyStore.loadKey();
+      if (!llmKey) {
+        card && card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        alert('请先在上方填写并验证您的 LLM API Key');
+        return;
+      }
+
+      // 重置UI
+      resetDebugInfo();
+      resetAutoProgress();
+      autoProgress.classList.remove('d-none');
+
+      // 禁用按钮：在被点击的按钮上显示转圈
+      const triggerButton = refineMode ? refineButton : autoGenerateButton;
+      const spinner = triggerButton ? triggerButton.querySelector('.spinner-border') : null;
+      if (spinner) spinner.classList.remove('d-none');
+      if (autoGenerateButton) autoGenerateButton.disabled = true;
+      if (refineButton) refineButton.disabled = true;
+
+      let reader = null;
+      let isDone = false;
+
+      try {
+        // 直接用 fetch POST 发送数据，接收流式响应
+        // Key 只放在请求头里：不进入 URL、不写进 body，服务端用完即弃
+        const response = await fetch('/scripts/auto_generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+          },
+          body: JSON.stringify({
+            description: description,
+            script_name: scriptName,
+            script_description: scriptDescription,
+            device_models: deviceModels,
+            branches: collectBranches(),
+            base_code: refineMode ? currentCode : undefined,
+            script_uid: document.getElementById('script-uid') ? document.getElementById('script-uid').value : undefined
+          })
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          // 服务端出错时尽量给一句人话，而不是把原始 JSON 甩给用户
+          // （例如 429 quota_exceeded 曾直接显示成 '请求失败: 429 - {"error":...}'）。
+          let message = errorText;
+          try {
+            const parsed = JSON.parse(errorText);
+            message = parsed.error || parsed.message || errorText;
+            if (parsed.code === 'quota_exceeded') {
+              message = '本月额度已用完：' + message;
+            }
+          } catch (e) { /* 非 JSON，原样保留 */ }
+          throw new Error(message || ('HTTP ' + response.status));
+        }
+
+        // 获取 ReadableStream 来读取流式响应
+        reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        // 处理 SSE 格式的流数据
+        // SSE 事件解析状态必须**跨网络分片保留**。
+        // 隐性知识（踩过坑）：这里原来把 currentEvent/currentData 声明在 while 内部，
+        // 每个分片都会重置；一旦某个大事件（例如带完整日志与返回结果的 tested/complete，
+        // 十几 KB）被拆到两个分片——"event:/data:" 在前一片、结尾空行在后一片——
+        // 该事件就被静默丢弃。现象是：生成明明成功，但"执行日志/返回结果"全空。
+        let currentEvent = 'message';
+        let currentData = '';
+
+        while (!isDone) {
+          const { done, value } = await reader.read();
+          if (done) {
+            isDone = true;
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // 处理完整的 SSE 事件
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // 保留不完整的行
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7);
+            } else if (line.startsWith('data: ')) {
+              currentData += line.slice(6);
+            } else if (line === '') {
+              // 空行表示事件结束
+              if (currentData) {
+                try {
+                  const data = JSON.parse(currentData);
+                  handleStreamEvent(currentEvent, data);
+                } catch (e) {
+                  console.error('解析事件数据失败:', e, currentData);
+                }
+              }
+              currentEvent = 'message';
+              currentData = '';
+            }
+          }
+        }
+
+      } catch (error) {
+        console.error('生成失败:', error);
+        showStatus('发生错误：' + error.message, 'danger');
+      } finally {
+        // 清理
+        if (reader) {
+          reader.cancel().catch(() => {});
+        }
+        if (spinner) spinner.classList.add('d-none');
+        if (autoGenerateButton) autoGenerateButton.disabled = false;
+        // 有可用的生成代码时才允许微调
+        // 走统一的刷新：除了微调，保存/调试完成的可用性与微调按钮的提示文案也一起对齐
+        refreshActionButtons();
+        autoSpinner.classList.add('d-none');
+      }
+
+      // 处理单个 SSE 事件
+      function handleStreamEvent(eventType, data) {
+        switch (eventType) {
+          case 'start_attempt':
+            updateAutoProgress(0, '开始第 ' + data.attempt + ' 次尝试...', '共 ' + data.max + ' 次机会');
+            break;
+
+          case 'generating':
+            updateAutoProgress(20, refineMode ? '正在按当前描述微调代码...' : '正在调用 AI 生成脚本...');
+            break;
+
+          case 'generated':
+            console.log('[DEBUG] generated 事件触发');
+            console.log('[DEBUG] 接收到的数据:', data);
+            console.log('[DEBUG] code 类型:', typeof data.code, '长度:', data.code?.length);
+            console.log('[DEBUG] command_mapping 类型:', typeof data.command_mapping, '长度:', data.command_mapping?.length);
+            updateAutoProgress(35, '脚本生成完成，准备测试...');
+            generatedCode.textContent = data.code || '# 生成的脚本为空';
+            hljs.highlightElement(generatedCode);
+            document.getElementById('command-mapping-content').value = JSON.stringify(data.command_mapping || [], null, 2);
+            generatedMapping.textContent = JSON.stringify(data.command_mapping || [], null, 2);
+            hljs.highlightElement(generatedMapping);
+            // 主线映射也存入场景产物，切回主线标签时能同步显示
+            setScenarioArtifact('main', { command_mapping: data.command_mapping || [] });
+            renderActiveScenarioArtifacts();
+
+            const scriptIntroElement = document.getElementById('script_intro');
+            const scriptNameElement = document.getElementById('script_name');
+            const userPromptElement = document.getElementById('user_prompt');
+            if (data.description) {
+              scriptIntroElement.value = data.description;
+            }
+            // 如果 AI 返回了脚本名称，直接使用；否则根据描述生成建议的脚本名称
+            if (data.script_name) {
+              scriptNameElement.value = data.script_name;
+            } else if (!scriptNameElement.value.trim() && data.description) {
+              scriptNameElement.value = generateScriptName(data.description);
+            }
+            scriptIntroElement.classList.remove('d-none');
+            break;
+
+          case 'generation_failed':
+            console.log('[DEBUG] generation_failed 事件触发', data);
+            updateAutoProgress(35, '脚本生成失败，准备重试...');
+            showStatus('脚本生成失败: ' + (data.error || '未知错误'), 'danger');
+            break;
+
+          case 'testing':
+            updateAutoProgress(50, '正在沙盒中执行测试...');
+            break;
+
+          case 'tested':
+            updateAutoProgress(65, '测试完成，正在评估...');
+            if (data.result && data.result.logs) {
+              debugLogs.innerHTML = data.result.logs.map(log =>
+                '<div class="font-monospace small">' + escapeHtml(log) + '</div>'
+              ).join('');
+            }
+            if (data.result && data.result.result) {
+              debugResult.textContent = JSON.stringify(data.result.result, null, 2);
+            }
+            break;
+
+          case 'evaluating':
+            updateAutoProgress(75, '正在评估测试结果...');
+            if (data.scenario && isScenarioActive(data.scenario.key)) {
+              renderEvaluationInProgress(data.scenario.name, '正在评估测试结果...');
+            }
+            break;
+
+          case 'evaluated':
+            updateAutoProgress(85, '评估完成');
+            evaluationResult.classList.remove('d-none');
+            if (data.result && data.result.passed) {
+              evaluationResult.querySelector('.card').className = 'card border-success border-1';
+              evalHeader.innerHTML = '<i class="bi bi-check-circle me-1"></i>评估通过';
+              evalHeader.parentElement.className = 'card-header bg-success bg-opacity-10 text-success py-2 border-0';
+            } else {
+              evaluationResult.querySelector('.card').className = 'card border-warning border-1';
+              evalHeader.innerHTML = '<i class="bi bi-exclamation-circle me-1"></i>评估未通过';
+              evalHeader.parentElement.className = 'card-header bg-warning bg-opacity-10 text-warning py-2 border-0';
+            }
+
+            evalContent.innerHTML = buildEvaluationHtml(data.result || {});
+            break;
+
+          case 'scenario_mapping_generating':
+            updateAutoProgress(100, '主线已通过，正在为分支【' + ((data.scenario && data.scenario.name) || '') + '】生成测试映射...');
+            if (data.scenario && isScenarioActive(data.scenario.key)) {
+              renderEvaluationInProgress(data.scenario.name, '正在生成测试映射...');
+            }
+            break;
+
+          case 'scenario_testing':
+            updateAutoProgress(100, '正在测试分支【' + ((data.scenario && data.scenario.name) || '') + '】...');
+            if (data.scenario && isScenarioActive(data.scenario.key)) {
+              renderEvaluationInProgress(data.scenario.name, '正在沙盒测试...');
+            }
+            break;
+
+          case 'scenario_mapping_generated':
+            if (data.scenario && data.scenario.kind === 'branch') {
+              setScenarioArtifact(data.scenario.key, { command_mapping: data.command_mapping || [] });
+              renderActiveScenarioArtifacts();
+            }
+            break;
+
+          case 'scenario_tested':
+            if (data.scenario) {
+              setScenarioArtifact(data.scenario.key, { test_result: data.result || {} });
+              renderActiveScenarioArtifacts();
+            }
+            break;
+
+          case 'scenario_evaluated':
+            if (data.scenario) {
+              setScenarioArtifact(data.scenario.key, { evaluation: data.result || {}, passed: data.result && data.result.passed });
+              renderScenarioResults([{
+                key: data.scenario.key,
+                kind: data.scenario.kind,
+                name: data.scenario.name,
+                evaluation: data.result || {},
+                passed: data.result && data.result.passed
+              }]);
+              renderActiveScenarioEvaluation();
+            }
+            break;
+
+          case 'success':
+            // 主线通过即判定成功；分支在之后执行，结果单独告知，所以这里不能结束流读取
+            updateAutoProgress(100, refineMode ? '主线评估通过（微调完成）' : '主线评估通过', '第 ' + data.attempt + ' 次尝试通过');
+            saveButton.disabled = false;
+            publishButton.disabled = false;
+            if (refineButton) refineButton.disabled = false;
+            if (data.mapping_supplement_notice) {
+              showStatus(data.mapping_supplement_notice, 'warning');
+            } else {
+              showStatus(collectBranches().length > 0
+                ? '主线评估已通过，正在执行分支测试...'
+                : '自动化生成成功！脚本已通过评估验证。', 'success');
+            }
+            break;
+
+          case 'retry':
+            updateAutoProgress(30, '评估未通过，准备重试...', '第 ' + data.attempt + ' 次尝试失败');
+            break;
+
+          case 'final_failed':
+            updateAutoProgress(100, '多次尝试后未能通过评估', '共尝试 ' + data.attempts + ' 次');
+            autoSpinner.classList.add('d-none');
+            break;
+
+          case 'needs_clarification':
+            // 剩下的问题脚本与平台都无解，继续重试只会逼模型编值——停下来问用户
+            updateAutoProgress(100, '需要您确认信息后才能继续', '');
+            autoSpinner.classList.add('d-none');
+            renderUserQuestions(data.questions);
+            showStatus('生成暂停：有信息需要您确认（见下方"需要您确认"）。', 'warning');
+            isDone = true;
+            break;
+
+          case 'complete':
+            console.log('[DEBUG] complete 事件触发');
+            console.log('[DEBUG] complete 事件接收到的数据:', data);
+
+            autoSpinner.classList.add('d-none');
+
+            // 收尾：保证进度条满格，并把状态文案定到最终结果（否则会停在"正在测试分支…"）
+            if (data.success) {
+              const branchSummary = data.branch_summary;
+              updateAutoProgress(100,
+                (branchSummary && branchSummary.total > 0)
+                  ? ('生成完成：主线评估通过；分支 ' + branchSummary.passed + '/' + branchSummary.total + ' 通过')
+                  : '生成完成：主线评估通过',
+                '共尝试 ' + (data.attempts || 1) + ' 次');
+            } else {
+              updateAutoProgress(100,
+                data.needs_user_confirmation ? '生成暂停：需要您确认信息' : '生成结束：主线未通过评估',
+                '共尝试 ' + (data.attempts || 1) + ' 次');
+            }
+
+            // 记录并展示各分支场景的测试结果；保存时据此回填映射
+            if (data.branch_scenarios) {
+              lastGeneratedBranchScenarios = data.branch_scenarios;
+            }
+            // 生成结束即落库（成功记 generated/refined，未通过记 autosave）：
+            // 这样刷新页面不会丢掉刚生成的结果；配额不足等失败只提示、不阻塞
+            autoSaveScript(data.success ? (refineMode ? 'refined' : 'generated') : 'autosave');
+            renderScenarioResults(data.scenarios);
+            // 把每个场景的映射/日志/结果存入产物，供切换标签时同步显示
+            if (data.scenarios) {
+              data.scenarios.forEach(function (scenario) {
+                setScenarioArtifact(scenario.key, {
+                  command_mapping: scenario.command_mapping,
+                  test_result: scenario.test_result,
+                  evaluation: scenario.evaluation,
+                  passed: scenario.passed
+                });
+              });
+            }
+            renderActiveScenarioArtifacts();
+            renderActiveScenarioEvaluation();
+
+            // 需要用户确认的问题（若有）单独成块展示（只来自主线评估）
+            renderUserQuestions(data.user_questions);
+
+            // 主线通过后，把分支测试结果单独告知用户（分支不参与通过判定）
+            if (data.success && data.branch_summary && data.branch_summary.total > 0) {
+              const bs = data.branch_summary;
+              showStatus('主线评估已通过；分支结果：' + bs.passed + '/' + bs.total + ' 通过'
+                + (bs.passed === bs.total ? '（全部分支通过）' : '（未通过的分支见对应标签页）'),
+                bs.passed === bs.total ? 'success' : 'warning');
+            }
+
+            // 生成完成后不再弹"是否保存"：已经有自动保存（见上面的 autoSaveScript），
+            // 内容在生成结束那一刻就落库了，再问一次只会多一次打扰
+
+            const completeScriptIntro = document.getElementById('script_intro');
+            const completeScriptName = document.getElementById('script_name');
+            if (data.description) {
+              completeScriptIntro.value = data.description;
+            }
+            // 如果 AI 返回了脚本名称，直接使用；否则根据描述生成建议的脚本名称
+            if (data.script_name) {
+              completeScriptName.value = data.script_name;
+            } else if (!completeScriptName.value.trim() && data.description) {
+              completeScriptName.value = generateScriptName(data.description);
+            }
+            completeScriptIntro.classList.remove('d-none');
+
+            if (!data.success) {
+              finalSuggestion.classList.remove('d-none');
+              let suggestion = data.final_suggestion || '请尝试更详细地描述您的需求。';
+              // 报告披露：说明补过哪些映射、还差哪些没补上
+              if (data.mapping_supplement_notice) {
+                suggestion = data.mapping_supplement_notice + '\n\n' + suggestion;
+              }
+              if (data.unresolved_mapping_suggestions && data.unresolved_mapping_suggestions.length > 0) {
+                const pending = data.unresolved_mapping_suggestions.map(s => s.command).join('、');
+                suggestion = suggestion + '\n\n仍未补齐的命令映射：' + pending;
+              }
+              suggestionText.textContent = suggestion;
+
+              evaluationResult.classList.remove('d-none');
+              evaluationResult.querySelector('.card').className = 'card border-danger border-1';
+              evalHeader.innerHTML = '<i class="bi bi-x-circle me-1"></i>生成失败';
+              evalHeader.parentElement.className = 'card-header bg-danger bg-opacity-10 text-danger py-2 border-0';
+
+              // 失败原因必须显示出来：把最后一轮评估的结论、未达成条目、问题与建议铺进面板。
+              // 不能只依赖 evaluated 事件（万一事件丢失，这里也要兜住）。
+              if (data.evaluation) {
+                const ev = data.evaluation;
+                evalContent.innerHTML = buildEvaluationHtml({
+                  evaluation: ev.evaluation || '多次尝试后仍未通过评估。',
+                  items: ev.items,
+                  issues: ev.issues,
+                  suggestions: ev.suggestions
+                });
+              }
+
+              showStatus(data.needs_user_confirmation
+                ? '生成暂停：有信息需要您确认（见下方"需要您确认"）。'
+                : '自动化生成未成功，请查看失败原因与建议。', 'warning');
+
+              if (data.code) {
+                generatedCode.textContent = data.code;
+                hljs.highlightElement(generatedCode);
+                if (refineButton) refineButton.disabled = false;
+              }
+              if (data.command_mapping) {
+                generatedMapping.textContent = JSON.stringify(data.command_mapping, null, 2);
+                hljs.highlightElement(generatedMapping);
+              }
+              if (data.test_result) {
+                if (data.test_result.logs) {
+                  debugLogs.innerHTML = data.test_result.logs.map(log =>
+                    '<div class="font-monospace small">' + escapeHtml(log) + '</div>'
+                  ).join('');
+                }
+                if (data.test_result.result) {
+                  debugResult.textContent = JSON.stringify(data.test_result.result, null, 2);
+                }
+              }
+            } else if (data.mapping_supplement_notice) {
+              // 通过但补过测试环境映射：必须点明
+              showStatus(data.mapping_supplement_notice, 'warning');
+            }
+            isDone = true;
+            break;
+
+          case 'error':
+            console.error('SSE Error:', data);
+            showStatus('发生错误：' + (data.error || '未知错误'), 'danger');
+            isDone = true;
+            break;
+
+          case 'done':
+            isDone = true;
+            break;
+        }
+      }
+    }
+
+    // 自动化生成按钮点击
+    autoGenerateButton.addEventListener('click', async function() {
+      handleGenerate();
+    });
+
+    // 微调：按当前主线/分支描述，在已有代码基础上做最小改动并重新测试全部场景
+    if (refineButton) {
+      refineButton.addEventListener('click', async function() {
+        handleGenerate({ refine: true });
+      });
+    }
+
+    // ---- 从手工操作日志生成需求描述框架 ----
+    //
+    // 交互：弹窗里填「目标」与「日志」→ 生成框架 → 预览（可编辑）→ 待确认项点候选回填 →
+    // 应用到需求框。
+    // 隐性知识：日志里没有的判据由模型留成【待确认#N】占位并登记为 open_questions，
+    // 点候选或自己填入即把该占位整段替换掉；未填的占位原样保留（平台认可 [待确认] 的写法），
+    // 不阻塞后续生成。
+    const draftRequirementButton = document.getElementById('draft-requirement-button');
+    const draftModalEl = document.getElementById('requirement-draft-modal');
+    const draftGoalInput = document.getElementById('draft-goal');
+    const draftLogInput = document.getElementById('draft-log');
+    const draftLogCount = document.getElementById('draft-log-count');
+    const draftGenerateButton = document.getElementById('draft-generate-button');
+    const draftApplyButton = document.getElementById('draft-apply-button');
+    const draftResult = document.getElementById('draft-result');
+    const draftPreview = document.getElementById('draft-preview');
+    const draftQuestionsWrap = document.getElementById('draft-questions-wrap');
+    const draftQuestionsEl = document.getElementById('draft-questions');
+    const draftQuestionsCol = document.getElementById('draft-questions-col');
+    const draftPreviewCol = document.getElementById('draft-preview-col');
+    const draftNotesEl = document.getElementById('draft-notes');
+    const draftAlert = document.getElementById('draft-alert');
+    const draftInputs = document.getElementById('draft-inputs');
+    const draftInputsSummary = document.getElementById('draft-inputs-summary');
+    const draftInputsSummaryText = document.getElementById('draft-inputs-summary-text');
+    const draftInputsExpand = document.getElementById('draft-inputs-expand');
+    const draftApplySlot = document.getElementById('draft-apply-slot');
+    const draftApplyFallback = document.getElementById('draft-apply-fallback');
+    // 待确认项：[{ id, question, options }]
+    let draftQuestions = [];
+    // 已回填的取值：question.id -> 用户点选/自填的值（用于把选中的那项标出来）
+    let draftAnswers = {};
+    // 上面每个取值写进框架的位置：question.id -> 下标（改选时用来定位，见 draftFillQuestion）
+    let draftAnswerPos = {};
+    // 框架文本的快照：手工编辑时拿它和新文本做差分，把位置平移过去（见 draftOnPreviewEdited）
+    let draftPreviewSnapshot = '';
+
+    // 生成后收起输入区：日志框太高，不收起来会把结果区顶出视口
+    function draftCollapseInputs() {
+      if (!draftInputs || !draftInputsSummary) { return; }
+      draftInputs.classList.add('d-none');
+      draftInputsSummaryText.textContent = '目标：' + (draftGoalInput.value.trim() || '（未填）') +
+        ' · 日志 ' + draftLogInput.value.length + ' 字符';
+      draftInputsSummary.classList.remove('d-none');
+      const body = draftModalEl.querySelector('.modal-body');
+      if (body) { body.scrollTop = 0; }
+    }
+
+    function draftExpandInputs() {
+      if (!draftInputs || !draftInputsSummary) { return; }
+      draftInputs.classList.remove('d-none');
+      draftInputsSummary.classList.add('d-none');
+    }
+
+    function draftShowAlert(message, kind) {
+      if (!draftAlert) { return; }
+      draftAlert.textContent = message;
+      draftAlert.className = 'alert py-2 small alert-' + (kind || 'warning');
+    }
+
+    function draftClearAlert() {
+      if (!draftAlert) { return; }
+      draftAlert.className = 'alert d-none py-2 small';
+      draftAlert.textContent = '';
+    }
+
+    // 上限来自服务端常量（data 属性），避免前后端各写一份数字
+    function draftMaxLogLength() {
+      const parsed = parseInt(draftLogInput ? draftLogInput.dataset.maxLogLength : '', 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 40000;
+    }
+
+    function draftPlaceholder(id) {
+      return '【待确认#' + id + '】';
+    }
+
+    function draftUpdateLogCount() {
+      if (!draftLogInput || !draftLogCount) { return; }
+      const length = draftLogInput.value.length;
+      const max = draftMaxLogLength();
+      const over = length > max;
+      draftLogCount.textContent = String(length);
+      draftLogCount.classList.toggle('text-danger', over);
+      draftLogCount.classList.toggle('fw-semibold', over);
+      if (draftGenerateButton) { draftGenerateButton.disabled = over; }
+    }
+
+    // 把某个待确认项的占位符整段替换成选定/自填的文本
+    // 把一个待确认项的取值写进框架。
+    //
+    // 隐性知识（三条都踩过）：
+    //   1. 同一个占位符在描述里**可能出现多次**：提示词要求"每一处待确认都写成对应 id 的
+    //      占位符"，于是正文里一处、记录字段清单里又一处。它们指的是同一个待确认项，
+    //      **必须一次全部替换** —— 只换第一处的话，界面看着还留着一条，用户得点两次
+    //      才填掉一项（而且会以为每个待确认莫名出现了两遍）。
+    //   2. **必须支持反复改选**。占位符只在第一次填的时候还在，第二次点别的候选时框架里
+    //      放着的是上一次的值 —— 只认占位符就会"点了没反应"。
+    //   3. 第二级定位用**记住的位置**，不按值在全文里搜：两个待确认项可能答同一个值
+    //      （都是"是"），按值搜会命中另一项的字，把别人的答案改掉。位置对不上就宁可
+    //      提示用户手动改 —— 改错地方比不动更糟。
+    function draftFillQuestion(id, text) {
+      const value = (text || '').trim();
+      if (!value || !draftPreview) { return; }
+
+      let spans = draftPlaceholderSpans(id);
+      if (spans.length === 0) { spans = draftValidAnswerSpans(id); }
+      if (spans.length === 0) {
+        draftShowAlert('框架里已经找不到 ' + draftPlaceholder(id) + ' 了（这段被手工改过）。请直接在左侧框架里编辑，或重新生成一次再选');
+        return;
+      }
+
+      // 从后往前替换：先动后面的，前面几处的位置才不会被顶动
+      let updated = draftPreview.value;
+      for (let i = spans.length - 1; i >= 0; i--) {
+        const span = spans[i];
+        updated = updated.slice(0, span.start) + value + updated.slice(span.start + span.length);
+      }
+      draftPreview.value = updated;
+      draftPreviewSnapshot = updated;
+      // 位置簿记同样逐处平移（先赋文本，重叠分支才能读到替换后的内容）
+      for (let i = spans.length - 1; i >= 0; i--) {
+        draftShiftAnswers(spans[i].start, spans[i].length, value.length);
+      }
+      draftAnswers[id] = value;
+      // 记录新位置：每替换一处，它前面已替换掉的区间都会让后面的位置左/右移，
+      // 所以第 index 处的新位置要加上 index 段累计的长度差。
+      // （同一批 spans 长度必然相同：要么都是同一个占位符，要么都是这条的旧取值。）
+      const spanDelta = value.length - spans[0].length;
+      draftAnswerPos[id] = spans.map(function (span, index) {
+        return span.start + index * spanDelta;
+      });
+      draftSyncQuestionSelection();
+    }
+
+    // 占位符在框架里出现的所有位置（同一个待确认可能写了好几处，见上面第 1 条）
+    function draftPlaceholderSpans(id) {
+      const spans = [];
+      if (!draftPreview) { return spans; }
+      const placeholder = draftPlaceholder(id);
+      let at = draftPreview.value.indexOf(placeholder);
+      while (at !== -1) {
+        spans.push({ start: at, length: placeholder.length });
+        at = draftPreview.value.indexOf(placeholder, at + placeholder.length);
+      }
+      return spans;
+    }
+
+    // 这条已填的取值现在还"站得住"的位置：那段文字必须仍在记录的位置上
+    function draftValidAnswerSpans(id) {
+      const value = draftAnswers[id];
+      const positions = draftAnswerPos[id];
+      if (value === undefined || !Array.isArray(positions)) { return []; }
+      return positions
+        .filter(function (pos) { return draftPreview.value.substr(pos, value.length) === value; })
+        .map(function (pos) { return { start: pos, length: value.length }; });
+    }
+
+    // 把已记录的位置按"框架里发生了这么一处改动"平移过去。
+    //
+    // 隐性知识：**必须平移，这是改选能不能用的关键**。位置不是只属于刚填的那一项 ——
+    // 框架里任何一处增删都会顶动它后面所有记录：
+    //   1) 先填 #2 再填 #1：写 #1 的位置在 #2 之前，会把 #2 的记录顶掉；
+    //   2) 用户在框架里手工加字/删字，同样会顶掉后面的记录。
+    // 不平移的话，之后再改选那一项就会"找不到那段文字"，白白让用户以为选不动了。
+    //
+    // 一条记录可能对应**多处**位置（同一个占位符在描述里出现多次，见 draftFillQuestion）。
+    function draftShiftAnswers(start, removed, inserted) {
+      const delta = inserted - removed;
+      Object.keys(draftAnswerPos).forEach(function (id) {
+        const positions = draftAnswerPos[id];
+        const value = draftAnswers[id];
+        if (!Array.isArray(positions) || value === undefined) { return; }
+
+        const kept = [];
+        let overlapped = false;
+        positions.forEach(function (pos) {
+          if (pos + value.length <= start) { kept.push(pos); return; }      // 改动点之前：不动
+          if (pos >= start + removed) { kept.push(pos + delta); return; }   // 改动点之后：平移
+          overlapped = true;                                                // 与改动区间重叠
+        });
+        if (!overlapped) { draftAnswerPos[id] = kept; return; }
+
+        // 重叠：只有"改动范围正好就是这条唯一的那处取值"才算用户改的是这条的内容，
+        // 把记录改指到他写进去的这段；否则（这条有多处取值、改动范围更大、或整段重写）
+        // 说明这片已经不属于原来那条了 —— 作废。若不区分，一次全选重写会让多条记录
+        // 指向同一段，之后改选其中一条就会把别人的内容一起换掉。
+        const onlyPos = positions.length === 1 ? positions[0] : null;
+        if (onlyPos !== null && inserted > 0 && start === onlyPos && removed === value.length) {
+          draftAnswers[id] = draftPreview.value.substr(start, inserted);
+          draftAnswerPos[id] = [start];
+        } else {
+          delete draftAnswers[id];
+          delete draftAnswerPos[id];
+        }
+      });
+    }
+
+    // 单区间差分：取最长公共前缀/后缀，返回 {start, removed, inserted}。
+    // 多处改动会被并成一个大区间 —— 那只会让更多记录被判成"这段被改过"，偏保守，不会改错。
+    function draftDiff(oldText, newText) {
+      let p = 0;
+      const maxPrefix = Math.min(oldText.length, newText.length);
+      while (p < maxPrefix && oldText.charAt(p) === newText.charAt(p)) { p++; }
+      let s = 0;
+      const maxSuffix = Math.min(oldText.length - p, newText.length - p);
+      while (s < maxSuffix &&
+             oldText.charAt(oldText.length - 1 - s) === newText.charAt(newText.length - 1 - s)) { s++; }
+      return { start: p, removed: oldText.length - p - s, inserted: newText.length - p - s };
+    }
+
+    // 框架被手工编辑：把位置平移过去，再刷新选中态
+    function draftOnPreviewEdited() {
+      if (!draftPreview) { return; }
+      const now = draftPreview.value;
+      if (now !== draftPreviewSnapshot) {
+        const change = draftDiff(draftPreviewSnapshot, now);
+        draftShiftAnswers(change.start, change.removed, change.inserted);
+        draftPreviewSnapshot = now;
+      }
+      draftSyncQuestionSelection();
+    }
+
+    // 某个待确认项是否已被回填。判据是"框架里那个占位符还在不在"，而不是只看
+    // draftAnswers：用户手工把框架里填好的文字删掉/改回去时，选中态也要跟着取消。
+    //
+    // 另有一层：本程序写入过的取值，还要确认那段文字仍在**记录的位置**上。用户手工把
+    // 它改成别的内容后，位置对不上 —— 这时我们已经不知道他选了什么，如实显示为"未填"，
+    // 而不是继续标成已填、让他以为填的是原来那个值。
+    function draftQuestionAnswered(id) {
+      if (!draftPreview) { return false; }
+      if (draftPreview.value.indexOf(draftPlaceholder(id)) !== -1) { return false; }
+      if (draftAnswers[id] === undefined) { return true; }   // 占位符被用户手工写掉了
+      // 本程序写入过的取值：至少有一处仍站在记录的位置上才算已填
+      return draftValidAnswerSpans(id).length > 0;
+    }
+
+    // 同步「待确认」的选中态：选中的候选变实心、卡片转绿、徽标加"已填"。
+    //
+    // 隐性知识：这里只改已渲染元素的样式，**不重建 DOM**。重建会把用户正在另一个
+    // 待确认项的自填框里敲了一半的文字一起清掉（列表是整块重画的）。
+    function draftSyncQuestionSelection() {
+      if (!draftQuestionsEl) { return; }
+      Array.prototype.forEach.call(draftQuestionsEl.querySelectorAll('[data-question-id]'), function (card) {
+        const id = card.dataset.questionId;
+        const answered = draftQuestionAnswered(id);
+        const chosen = draftAnswers[id];
+
+        card.classList.toggle('border-success', answered);
+
+        const badge = card.querySelector('[data-role="status-badge"]');
+        if (badge) {
+          badge.className = 'badge me-1 ' + (answered ? 'text-bg-success' : 'text-bg-warning');
+          badge.textContent = draftPlaceholder(id) + (answered ? ' 已填' : '');
+        }
+
+        const optionButtons = card.querySelectorAll('[data-role="option"]');
+        const optionValues = [];
+        Array.prototype.forEach.call(optionButtons, function (button) {
+          optionValues.push(button.dataset.option);
+          const selected = answered && chosen === button.dataset.option;
+          button.className = 'btn btn-sm me-2 mb-2 ' + (selected ? 'btn-primary' : 'btn-outline-primary');
+        });
+
+        // 自填框：选的值不在候选里时把值回显进去并标绿；改选成某个候选后，
+        // 把框里遗留的自填值清掉（否则看着像是自填和候选同时选着）
+        const input = card.querySelector('[data-role="custom-input"]');
+        if (input) {
+          const customChosen = answered && !!chosen && optionValues.indexOf(chosen) === -1;
+          if (customChosen && input.value !== chosen) { input.value = chosen; }
+          if (answered && chosen && optionValues.indexOf(chosen) !== -1 &&
+              optionValues.indexOf(input.value) === -1) {
+            input.value = '';
+          }
+          input.classList.toggle('is-valid', customChosen);
+        }
+      });
+    }
+
+    function draftRenderQuestions() {
+      if (!draftQuestionsEl || !draftQuestionsWrap) { return; }
+      draftQuestionsEl.innerHTML = '';
+
+      // 没有待确认项时收起右栏，让框架占满整行
+      const hasQuestions = draftQuestions.length > 0;
+      if (draftQuestionsCol) { draftQuestionsCol.classList.toggle('d-none', !hasQuestions); }
+      if (draftPreviewCol) {
+        draftPreviewCol.className = hasQuestions ? 'col-lg-7 d-flex flex-column' : 'col-12 d-flex flex-column';
+      }
+
+      // 「应用到主线描述」跟着清单走：有清单时贴在右栏底部；没有清单时右栏整个收起，
+      // 按钮会跟着一起被藏掉 —— 那时挪回兜底位置（摘要行下方），保证它始终点得到。
+      const applyHost = hasQuestions ? draftApplySlot : draftApplyFallback;
+      if (draftApplyButton && applyHost && draftApplyButton.parentElement !== applyHost) {
+        applyHost.appendChild(draftApplyButton);
+      }
+
+      if (!hasQuestions) { return; }
+
+      draftQuestions.forEach(function (question) {
+        const card = document.createElement('div');
+        card.className = 'border rounded p-2 mb-2';
+        card.dataset.questionId = question.id;
+
+        const title = document.createElement('div');
+        title.className = 'small mb-2';
+        const badge = document.createElement('span');
+        badge.className = 'badge text-bg-warning me-1';
+        badge.dataset.role = 'status-badge';
+        badge.textContent = draftPlaceholder(question.id);
+        title.appendChild(badge);
+        title.appendChild(document.createTextNode(question.question));
+        card.appendChild(title);
+
+        (question.options || []).forEach(function (option) {
+          const optionButton = document.createElement('button');
+          optionButton.type = 'button';
+          optionButton.className = 'btn btn-sm btn-outline-primary me-2 mb-2';
+          optionButton.dataset.role = 'option';
+          optionButton.dataset.option = option;
+          optionButton.textContent = option;
+          optionButton.addEventListener('click', function () {
+            draftFillQuestion(question.id, option);
+          });
+          card.appendChild(optionButton);
+        });
+
+        const inputWrap = document.createElement('div');
+        inputWrap.className = 'input-group input-group-sm';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-control';
+        input.placeholder = '自己写一个取值';
+        input.dataset.role = 'custom-input';
+        const fillButton = document.createElement('button');
+        fillButton.type = 'button';
+        fillButton.className = 'btn btn-outline-secondary';
+        fillButton.textContent = '填入';
+        fillButton.addEventListener('click', function () {
+          const value = input.value.trim();
+          if (!value) { return; }
+          // 先清空再回填：draftFillQuestion 里的同步会把选中的取值回显到框里，
+          // 用户才看得见自己填的是哪一条（清空若放在其后，会把回显一起清掉）。
+          input.value = '';
+          draftFillQuestion(question.id, value);
+        });
+        inputWrap.appendChild(input);
+        inputWrap.appendChild(fillButton);
+        card.appendChild(inputWrap);
+
+        draftQuestionsEl.appendChild(card);
+      });
+
+      draftSyncQuestionSelection();
+    }
+
+    async function draftRequest() {
+      const maxLength = draftMaxLogLength();
+      const goal = draftGoalInput ? draftGoalInput.value.trim() : '';
+      const log = draftLogInput ? draftLogInput.value : '';
+
+      draftClearAlert();
+      if (!goal) { draftShowAlert('请先填写目标'); return; }
+      if (!log.trim()) { draftShowAlert('请先粘贴手工操作日志'); return; }
+      if (log.length > maxLength) {
+        draftShowAlert('日志超过 ' + maxLength + ' 字符上限，请截取关键片段后重试');
+        return;
+      }
+
+      const llmKey = await LlmKeyStore.loadKey();
+      if (!llmKey) {
+        draftShowAlert('请先填写并验证您的 LLM API Key');
+        return;
+      }
+
+      const spinner = draftGenerateButton.querySelector('.spinner-border');
+      if (spinner) { spinner.classList.remove('d-none'); }
+      draftGenerateButton.disabled = true;
+
+      try {
+        const response = await fetch('/scripts/draft_requirement', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+          },
+          body: JSON.stringify({ goal: goal, log: log })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || ('HTTP ' + response.status));
+        }
+
+        draftPreview.value = data.description || '';
+        draftPreviewSnapshot = draftPreview.value;
+        draftQuestions = data.open_questions || [];
+        draftAnswers = {};      // 新一批待确认项，之前的选中态作废
+        draftAnswerPos = {};
+        draftRenderQuestions();
+        if (data.notes && data.notes.length) {
+          draftNotesEl.textContent = data.notes.join('；');
+          draftNotesEl.classList.remove('d-none');
+        } else {
+          draftNotesEl.classList.add('d-none');
+        }
+        draftResult.classList.remove('d-none');
+        draftApplyButton.classList.remove('d-none');
+        draftCollapseInputs();
+      } catch (error) {
+        console.error('生成需求框架失败:', error);
+        draftShowAlert('生成需求框架失败：' + error.message);
+      } finally {
+        if (spinner) { spinner.classList.add('d-none'); }
+        draftUpdateLogCount();   // 顺带按长度恢复/禁用生成按钮
+      }
+    }
+
+    // 「应用到主线描述」之后的提示：告诉用户下一步该点哪个按钮 ——
+    // 有代码可以微调，没代码只能先生成；不然用户会盯着一个灰着的「微调」发愣。
+    function applyNextStepHint() {
+      refreshActionButtons();
+      return codeReadyForActions()
+        ? '已应用到主线描述。当前已有脚本，可点「微调」按新描述调整它。'
+        : '已应用到主线描述。还没有生成过脚本，可点「自动化生成」。';
+    }
+
+    function draftApply() {
+      const text = draftPreview.value.trim();
+      if (!text) { return; }
+
+      const unresolved = draftQuestions.filter(function (question) {
+        return text.indexOf(draftPlaceholder(question.id)) !== -1;
+      });
+      if (unresolved.length) {
+        const names = unresolved.map(function (q) { return draftPlaceholder(q.id); }).join('、');
+        const confirmed = confirm('还有 ' + unresolved.length + ' 项待确认未填写（' + names + '）。\n\n' +
+          '未填项会原样保留在描述里，生成时脚本会把它们标为待确认。\n\n仍要应用吗？');
+        if (!confirmed) { return; }
+      }
+
+      userPromptTextarea.value = text;
+      const modal = bootstrap.Modal.getInstance(draftModalEl);
+      if (modal) { modal.hide(); }
+      showStatus(applyNextStepHint(), 'success');
+    }
+
+    // 「脚本已存在」确认弹窗：两个按钮分别走重新生成 / 微调
+    (function wireRegenerateConfirm() {
+      const modalEl = document.getElementById('regenerate-confirm-modal');
+      if (!modalEl) { return; }
+
+      const hide = function () {
+        const instance = bootstrap.Modal.getInstance(modalEl);
+        if (instance) { instance.hide(); }
+      };
+      const regenerateBtn = document.getElementById('regenerate-confirm-regenerate');
+      const refineBtn = document.getElementById('regenerate-confirm-refine');
+      if (regenerateBtn) {
+        regenerateBtn.addEventListener('click', function () {
+          hide();
+          handleGenerate({ force: true });
+        });
+      }
+      if (refineBtn) {
+        refineBtn.addEventListener('click', function () {
+          hide();
+          handleGenerate({ refine: true });
+        });
+      }
+    })();
+
+    if (draftRequirementButton && draftModalEl) {
+      draftRequirementButton.addEventListener('click', function () {
+        // 目标用需求框里已有的内容预填，省得用户重复输入；用户可自行删改
+        if (draftGoalInput && !draftGoalInput.value.trim() && userPromptTextarea.value.trim()) {
+          draftGoalInput.value = userPromptTextarea.value.trim();
+        }
+        draftClearAlert();
+        draftExpandInputs();   // 每次打开都从"可编辑日志"的状态开始
+        draftUpdateLogCount();
+        bootstrap.Modal.getOrCreateInstance(draftModalEl).show();
+      });
+      if (draftInputsExpand) { draftInputsExpand.addEventListener('click', draftExpandInputs); }
+      if (draftLogInput) { draftLogInput.addEventListener('input', draftUpdateLogCount); }
+      // 用户在框架里手工改动（含删掉已填的值）后，位置要跟着平移，选中态也要变
+      if (draftPreview) { draftPreview.addEventListener('input', draftOnPreviewEdited); }
+      if (draftGenerateButton) { draftGenerateButton.addEventListener('click', draftRequest); }
+      if (draftApplyButton) { draftApplyButton.addEventListener('click', draftApply); }
+
+      // 首页 Hero 的「生成需求描述」：现在由首页**表单 POST** 把目标与日志交过来，服务端只在
+      // 这一次渲染里注入 JSON（见 #draft-prefill），**不落浏览器存储**。
+      // 隐性知识：
+      //   1. 必须放在上面的事件绑定之后——预填后要靠 draftUpdateLogCount()
+      //      按长度恢复生成按钮的可用状态，否则按钮停在禁用态，用户以为坏了。
+      //   2. 本机没有 Key 时**不预填**：先让用户把 Key 配好，别丢一张要他填 Key 的大弹窗。
+      //      配置那一步会整页刷新，而内容不落存储，所以刷新/配完回来是空表单，需要重新粘贴一次。
+      //   3. 历史遗留：旧版本往 sessionStorage 写过一份，这里顺手清掉。
+      //   4. 日志超过上限时不截断，让计数器和按钮如实反映"超了"，由用户自己删减。
+      (async function pickupLandingHandoff() {
+        try { sessionStorage.removeItem('qingxun_manual_log_handoff'); } catch (e) { /* 隐私模式：忽略 */ }
+
+        var prefillEl = document.getElementById('draft-prefill');
+        if (!prefillEl || !draftLogInput || !draftModalEl) { return; }
+
+        // 开源版：Key 由服务端配置，预填不再依赖本机 Key
+        var creds = null;
+        try { creds = await LlmKeyStore.load(); } catch (e) { creds = null; }
+        if (!creds || !creds.llmKey) { return; }
+
+        var handedOff = null;
+        try { handedOff = JSON.parse(prefillEl.textContent); } catch (e) { handedOff = null; }
+        if (!handedOff || typeof handedOff !== 'object') { return; }
+
+        var handedOffLog = typeof handedOff.log === 'string' ? handedOff.log : '';
+        var handedOffGoal = typeof handedOff.goal === 'string' ? handedOff.goal.trim() : '';
+        if (!handedOffLog && !handedOffGoal) { return; }
+
+        // 目标只在空着时才填，不覆盖用户已经写好的内容（与页内那个入口的约定一致）
+        if (draftGoalInput && !draftGoalInput.value.trim() && handedOffGoal) {
+          draftGoalInput.value = handedOffGoal;
+        }
+        draftLogInput.value = handedOffLog;
+        draftClearAlert();
+        draftExpandInputs();
+        draftUpdateLogCount();
+        bootstrap.Modal.getOrCreateInstance(draftModalEl).show();
+      })();
+
+    }
+
+  });
+</script>

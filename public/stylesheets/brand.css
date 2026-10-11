@@ -1,0 +1,292 @@
+/* ============================================================================
+   品牌基座 —— 首页与应用共用
+   ============================================================================
+
+   加载顺序（必须遵守）：
+       bootstrap.min.css  →  brand.css  →  application.css 或 landing.css
+   后加载的同权重规则会覆盖先加载的，所以页面级样式表始终能盖过这里。
+
+   为什么需要这个文件：
+       public/stylesheets/landing.css（首页）与 application.css（其余 28 条路由）
+       本来各有一套颜色。加上布局里的内联色，整个站点出现过三个互不相干的"主色"：
+       首页 #0d9488、布局内联 #1976d2、application.css #2563eb。
+       这里把它们收敛成一组 token，两边都引用。
+
+   隐性知识：本项目**没有资产管线**（Gemfile 里没有 sprockets/propshaft/sassc），
+   所以 app/assets/** 是死代码，永远不会被编译或下发。改样式只改 public/ 下的文件。
+   ============================================================================ */
+
+:root {
+  /* ---- 品牌色：以首页的青绿为主 ---- */
+  --brand:        #0d9488;
+  --brand-light:  #14b8a6;
+  --brand-dark:   #0f766e;
+  --brand-accent: #06b6d4;   /* 渐变另一端（青） */
+  --brand-bg:     #f0fdfa;
+
+  /* ---- 次级蓝：首页的强调色，也是原应用主色的去处 ---- */
+  --blue:       #2563eb;
+  --blue-light: #3b82f6;
+  --blue-bg:    #eff6ff;
+
+  /* ---- 语义色 ---- */
+  --success:       #10b981;
+  --success-dark:  #0da271;
+  --warning:       #f59e0b;
+  --warning-dark:  #d97706;
+  --danger:        #ef4444;
+
+  /* ---- 中性面与描边 ----
+     #f4f5f7 / #f4f6f8 与 #e2e8f0 / #e0e0e0 原来是两边各自写死、肉眼无差的值，
+     这里各留一个，避免继续分叉。 */
+  --bg-main:      #fafbfc;
+  --bg-white:     #ffffff;
+  --bg-muted:     #f4f5f7;
+  --border-light: #e2e8f0;
+  --border:       #cbd5e1;
+
+  /* ---- 文字阶 ---- */
+  --text-primary:   #1a1a2e;
+  --text-secondary: #4a5568;
+  --text-muted:     #718096;
+
+  /* ---- 深色阶（代码块、深色页用） ---- */
+  --gray-100: #f8fafc;
+  --gray-500: #64748b;
+  --gray-600: #475569;
+  --gray-700: #334155;
+  --gray-800: #1e293b;
+  --gray-900: #0f172a;
+
+  /* ---- 其它强调色（首页在场景/图标里用） ---- */
+  --orange:       #ea580c;
+  --orange-light: #f97316;
+  --purple:       #7c3aed;
+  --purple-light: #8b5cf6;
+  --pink:         #db2777;
+  --pink-light:   #ec4899;
+
+  /* ---- 圆角阶 ---- */
+  --r-sm:   8px;
+  --r-md:   10px;
+  --r-lg:   12px;
+  --r-xl:   16px;
+  --r-2xl:  20px;
+  --r-pill: 100px;
+
+  /* ---- 阴影阶 ---- */
+  --sh-card:       0 4px 20px rgba(0, 0, 0, 0.06);
+  --sh-hover:      0 6px 20px rgba(0, 0, 0, 0.08);
+  --sh-brand:      0 4px 15px rgba(13, 148, 136, 0.25);
+  --sh-brand-hover: 0 6px 20px rgba(13, 148, 136, 0.35);
+  /* 主按钮的渐变：首页与应用共用同一对色，改这里两边同时变 */
+  --grad-brand: linear-gradient(135deg, var(--brand), var(--brand-accent));
+
+  /* ---- 字体 ----
+     中文优先栈。应用侧原来完全没有 font-family，走的是 Bootstrap 默认
+     （system-ui，不含中文字体），所以两边字形本来就不一致。 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+               'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
+  --font-mono: 'Consolas', 'Monaco', 'SFMono-Regular', monospace;
+}
+
+/* ---- 基础排版：全站统一 ---- */
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  line-height: 1.7;
+  /* 纵向 flex 容器：内容不足一屏时把页脚推到视口底部。
+     否则短页面（如登录页）的页脚会停在内容末尾，下方留一片空白。 */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 移动端浏览器地址栏会改变可视高度，100dvh 更准；不支持时退回上面的 100vh */
+@supports (min-height: 100dvh) {
+  body { min-height: 100dvh; }
+}
+
+/* 内容区吃掉剩余高度，页脚随内容正常下移、触底后不再拉伸 */
+body > main { flex: 1 0 auto; }
+body > footer { flex-shrink: 0; }
+
+/* ---- 把 Bootstrap 的变量接到品牌 token 上 ----
+   隐性知识：这份 Bootstrap 是**编译产物**，组件颜色大多已烤成字面量
+   （`var(--bs-primary)` 在它内部被引用 0 次），但下面这几个变量确实被 var() 引用，
+   桥接它们能一次改动覆盖大片组件：
+
+     --bs-primary-rgb        .text-primary / .text-bg-primary 等（9 处）
+     --bs-link-color-rgb     链接色——Bootstrap 5.3 用的是 **-rgb 变体**，
+                             只桥接 --bs-link-color 不会生效（踩过）
+     --bs-border-radius      表单控件等 46 处引用
+     --bs-progress-bar-bg    进度条
+
+   其余（按钮/卡片/提示框）由页面级样式显式覆盖，application.css 里已做。 */
+:root {
+  --bs-body-bg: var(--bg-main);
+  --bs-body-color: var(--text-primary);
+  --bs-body-font-family: var(--font-sans);
+  --bs-border-color: var(--border-light);
+
+  --bs-primary-rgb: 13, 148, 136;
+  --bs-link-color: var(--brand);
+  --bs-link-color-rgb: 13, 148, 136;
+  --bs-link-hover-color: var(--brand-dark);
+  --bs-link-hover-color-rgb: 15, 118, 110;
+  --bs-focus-ring-color: rgba(13, 148, 136, 0.25);
+  --bs-progress-bar-bg: var(--brand);
+
+  --bs-border-radius: var(--r-sm);
+  --bs-border-radius-lg: var(--r-md);
+}
+
+/* 表单与按钮的焦点环在 Bootstrap 里写死成蓝色（#86b7fe / rgba(13,110,253,.25)），
+   不显式覆盖的话应用侧表单一聚焦就露出旧蓝。 */
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus {
+  border-color: var(--brand-light);
+  box-shadow: 0 0 0 0.25rem rgba(13, 148, 136, 0.25);
+}
+
+.form-check-input:checked {
+  background-color: var(--brand);
+  border-color: var(--brand);
+}
+
+/* ---- 按钮：主/成功/描边 ----
+   放在品牌基座而不是应用样式里：首页不加载 application.css，
+   放那边会让首页上的 Bootstrap 按钮漏成原生蓝。 */
+.btn-primary {
+  background-color: var(--brand) !important;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  border-radius: var(--r-sm);
+  font-weight: 600;
+  box-shadow: var(--sh-brand);
+  transition: all 0.15s;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sh-brand-hover);
+}
+
+/* 禁用态要一眼看出"不可用"。
+   隐性知识：只靠 Bootstrap 的 opacity: .65，青绿渐变被压成灰扑扑一团，和"能点的按钮"几乎分不出
+   差别——用户会以为按钮坏了（实测：脚本页的「保存」在评估未通过时是禁用的，看到的就是"灰的、点了没反应"）。
+   这里给禁用态一个明确的浅灰底 + 禁用光标，避免"灰=坏了吗"的歧义。 */
+.btn:disabled,
+.btn.disabled {
+  background: var(--border-light) !important;
+  color: var(--text-muted) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.btn-success {
+  background-color: var(--success) !important;
+  background: linear-gradient(135deg, var(--success) 0%, var(--success-dark) 100%) !important;
+  border: none !important;
+  border-radius: var(--r-sm);
+  font-weight: 500;
+}
+
+.btn-outline-primary {
+  color: var(--brand) !important;
+  border-color: var(--brand) !important;
+  border-radius: var(--r-sm);
+  font-weight: 500;
+}
+
+.btn-outline-primary:hover {
+  background: var(--grad-brand) !important;
+  color: white !important;
+  border-color: var(--brand) !important;
+}
+
+.btn-outline-success {
+  color: var(--success) !important;
+  border-color: var(--success) !important;
+  border-radius: var(--r-sm);
+}
+
+.btn-outline-success:hover {
+  background: linear-gradient(135deg, var(--success) 0%, var(--success-dark) 100%) !important;
+  color: white !important;
+  border-color: var(--success) !important;
+}
+
+/* 还有少数组件的品牌色是**烤死在 Bootstrap 里的字面量**（不是变量），桥接无效，
+   只能显式覆盖。下面这几个是应用里实际用到的（已 grep 核对使用处）。 */
+.text-bg-primary {
+  color: #fff !important;
+  background-color: var(--brand) !important;
+}
+
+.progress,
+.progress-stacked {
+  --bs-progress-bar-bg: var(--brand);
+}
+
+.list-group {
+  --bs-list-group-active-bg: var(--brand);
+  --bs-list-group-active-border-color: var(--brand);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+small, .small { font-size: 0.875rem; }
+
+code, pre, kbd, samp { font-family: var(--font-mono); }
+
+hr { border-color: var(--border-light); }
+
+::selection { background: var(--brand-bg); color: var(--brand-dark); }
+
+/* ---- 导航：全站唯一一套（见 shared/_navbar.html.erb）----
+   早先首页与应用各有一条导航：首页是浅色毛玻璃（.nav-clean，固定定位、菜单项极简），
+   应用是 Bootstrap 深色实心（内联 #1976d2，菜单项完整）——除配色外，定位、内边距、
+   窄屏行为都不同。现已合并为下面这一套，所有页面共用同一份标记与菜单项。
+   导航在文档流内（不是 fixed），所以内容不需要为它预留高度。 */
+.navbar-app {
+  background: rgba(255, 255, 255, 0.95);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-light);
+  padding: 0.75rem 0;
+}
+
+.navbar-app .navbar-brand {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.navbar-app .nav-link {
+  color: var(--text-secondary);
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 0.5rem 0.875rem;
+}
+
+.navbar-app .nav-link:hover {
+  color: var(--text-primary);
+  background: var(--bg-muted);
+}
+
+.navbar-app .nav-link.active {
+  color: var(--brand);
+  background: transparent;
+}
+
+.navbar-app .navbar-toggler {
+  border-color: var(--border-light);
+}

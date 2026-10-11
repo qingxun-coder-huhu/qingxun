@@ -1,0 +1,29 @@
+# ==========================================================================
+# 清巡（Qingxun）开源版 · 业务配置
+#
+# 用法：复制为 config/qingxun.yml 后填写。LLM 的 Key 只在配置文件中维护，
+# 不会写入数据库、不会随请求传递、也不会出现在日志里。
+# ==========================================================================
+
+default: &default
+  # ---- 大模型（脚本生成 / 评估用）----
+  # 仅支持 OpenAI Chat Completions 风格的端点。
+  llm:
+    api_key: ""                                             # 必填：你的 API Key
+    api_url: "https://api.deepseek.com/v1/chat/completions" # 端点
+    model: "deepseek-chat"                                  # 模型名
+
+  # ---- 真机执行 ----
+  execution:
+    max_concurrent_devices: 20   # 同一次任务并发执行的设备数
+    script_timeout: 300          # 单脚本超时（秒）
+    enable_sandbox: true         # 是否在沙箱中执行脚本（建议开启）
+
+development:
+  <<: *default
+
+test:
+  <<: *default
+
+production:
+  <<: *default

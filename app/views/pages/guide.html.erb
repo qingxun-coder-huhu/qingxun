@@ -1,0 +1,830 @@
+<% content_for :title, '脚本开发全流程 - 怎么把手工日志做成能用的脚本 | 清巡' %>
+<% content_for :description, '清巡推荐的脚本开发流程：把设备上手工操作的日志脱敏后交给「从手工日志生成」，补全需求描述、自动化生成，核对评估结论再微调；下载客户端到真实设备上跑一遍，把执行日志用「云端改进」送回云端重新生成，直到调试完成。' %>
+<% content_for :keywords, '脚本开发流程,手工日志生成脚本,需求描述,自动化生成,评估结论,云端改进,调试完成,上环境验证' %>
+
+<% content_for :head_extra do %>
+<style>
+  /* ===== 脚本开发全流程帮助页 =====
+     只作用于本页：类名统一 gd- 前缀，颜色全走 brand.css 的 token，不写死色值。 */
+
+  .gd-page { max-width: 1140px; }
+  .gd-hero {
+    background: var(--grad-brand);
+    color: #fff;
+    border-radius: var(--r-2xl);
+    padding: 2.5rem 2rem;
+    box-shadow: var(--sh-brand);
+  }
+  /* 首屏只有这一行标题（页面名），下面接一段说明 —— 原来那行大标题和「流程总览」重复，已去掉 */
+  .gd-hero__kicker { font-size: .85rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; opacity: .85; margin: 0 0 .6rem; }
+  .gd-hero__lead { max-width: 46rem; opacity: .95; }
+  .gd-hero__facts { margin-top: 1.25rem; font-size: .875rem; opacity: .9; }
+
+  /* ---- 流程总览 ---- */
+  .gd-stage { border-left: 3px solid var(--brand); padding-left: .9rem; margin-bottom: 1.5rem; }
+  .gd-stage__title { font-size: .95rem; font-weight: 600; margin-bottom: .1rem; }
+  .gd-stage__sub { font-size: .8rem; color: var(--text-muted); }
+  .gd-nodes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  @media (min-width: 768px) { .gd-nodes { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .gd-node {
+    display: flex; gap: .6rem; align-items: flex-start;
+    background: var(--bg-white); border: 1px solid var(--border-light);
+    border-radius: var(--r-lg); padding: .7rem .8rem; height: 100%;
+  }
+  .gd-node__no {
+    flex: 0 0 auto; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: var(--brand-bg); color: var(--brand-dark);
+    font-size: .8rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .gd-node__text { font-size: .82rem; line-height: 1.45; }
+  .gd-node__text b { display: block; font-size: .85rem; }
+
+  /* ---- 分步卡片 ---- */
+  .gd-step {
+    background: var(--bg-white); border: 1px solid var(--border-light);
+    border-radius: var(--r-xl); box-shadow: var(--sh-card); overflow: hidden;
+  }
+  .gd-step + .gd-step { margin-top: 1.5rem; }
+  .gd-step__head {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-light);
+    background: var(--bg-muted);
+  }
+  .gd-step__no {
+    width: 2rem; height: 2rem; border-radius: var(--r-sm); flex: 0 0 auto;
+    background: var(--brand); color: #fff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .gd-step__title { font-size: 1.05rem; font-weight: 600; margin: 0; }
+  .gd-step__where {
+    margin-left: auto; font-size: .78rem; color: var(--text-secondary);
+    background: var(--bg-white); border: 1px solid var(--border-light);
+    border-radius: var(--r-pill); padding: .2rem .7rem;
+  }
+  .gd-step__body { padding: 1.25rem; }
+  .gd-step__grid { display: grid; grid-template-columns: 1fr; gap: 1.25rem; }
+  @media (min-width: 992px) { .gd-step__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+  .gd-do { font-size: .9rem; margin-bottom: .75rem; }
+  .gd-do:last-child { margin-bottom: 0; }
+
+  /* ---- 界面示意图（窗口外框） ---- */
+  .gd-shot {
+    border: 1px solid var(--border); border-radius: var(--r-md);
+    overflow: hidden; background: var(--bg-white); box-shadow: var(--sh-card);
+  }
+  .gd-shot__bar {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .45rem .7rem; background: var(--bg-muted);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .gd-shot__dots { display: flex; gap: .3rem; }
+  .gd-shot__dots i { width: .55rem; height: .55rem; border-radius: 50%; background: var(--border); display: block; }
+  .gd-shot__name { font-size: .76rem; color: var(--text-muted); }
+  .gd-shot__body { padding: .85rem; font-size: .82rem; }
+  .gd-shot__cap { font-size: .78rem; color: var(--text-muted); margin-top: .5rem; }
+
+  /* ---- 终端窗口 ---- */
+  .gd-term {
+    background: var(--gray-900); color: #e2e8f0;
+    font-family: var(--font-mono); font-size: .78rem; line-height: 1.6;
+    padding: .8rem; border-radius: var(--r-sm); white-space: pre-wrap; word-break: break-word;
+  }
+  .gd-term .gd-prompt { color: var(--brand-light); }
+  .gd-term .gd-cmd { color: #fff; }
+  .gd-term .gd-hole { color: #fca5a5; }
+  .gd-term .gd-dim { color: #94a3b8; }
+
+  /* ---- 通用小部件 ---- */
+  .gd-pill {
+    display: inline-block; font-size: .72rem; padding: .12rem .5rem;
+    border-radius: var(--r-pill); border: 1px solid var(--border-light);
+    background: var(--bg-muted); color: var(--text-secondary);
+  }
+  .gd-pill--brand { background: var(--brand-bg); border-color: var(--brand-light); color: var(--brand-dark); }
+  .gd-badge { font-size: .72rem; font-weight: 600; padding: .15rem .5rem; border-radius: var(--r-pill); }
+  .gd-badge--warn { background: #fef3c7; color: var(--warning-dark); }
+  .gd-badge--ok { background: #d1fae5; color: var(--success-dark); }
+  .gd-badge--err { background: #fee2e2; color: var(--danger); }
+  .gd-badge--info { background: var(--blue-bg); color: var(--blue); }
+  .gd-badge--partial { background: #ffedd5; color: var(--orange); }
+
+  .gd-field {
+    border: 1px solid var(--border-light); border-radius: var(--r-sm);
+    padding: .45rem .6rem; background: var(--bg-white); font-size: .8rem;
+    color: var(--text-secondary); margin-bottom: .5rem;
+  }
+  .gd-field__label { font-size: .72rem; color: var(--text-muted); display: block; margin-bottom: .15rem; }
+  .gd-field--area { min-height: 4.2rem; font-family: var(--font-mono); white-space: pre-wrap; }
+  .gd-btn {
+    display: inline-block; font-size: .78rem; font-weight: 600; padding: .3rem .8rem;
+    border-radius: var(--r-sm); background: var(--brand); color: #fff;
+  }
+  .gd-btn--ghost { background: var(--bg-white); color: var(--brand-dark); border: 1px solid var(--brand-light); }
+  .gd-btn--sm { font-size: .72rem; padding: .2rem .6rem; }
+
+  .gd-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .gd-row--top { align-items: flex-start; }
+  .gd-row + .gd-row { margin-top: .45rem; }
+  .gd-row__grow { flex: 1 1 auto; min-width: 0; }
+  .gd-kv { font-size: .8rem; color: var(--text-secondary); }
+  .gd-kv b { color: var(--text-primary); }
+
+  /* 待确认候选 */
+  .gd-cand {
+    display: inline-block; font-size: .74rem; padding: .1rem .5rem; margin: .1rem .2rem .1rem 0;
+    border-radius: var(--r-sm); border: 1px dashed var(--brand-light);
+    background: var(--brand-bg); color: var(--brand-dark); font-family: var(--font-mono);
+  }
+  .gd-hole-text { background: #fef3c7; color: var(--warning-dark); font-family: var(--font-mono); font-size: .78rem; padding: 0 .2rem; border-radius: 3px; }
+
+  /* 流水线 */
+  .gd-pipe { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+  .gd-pipe__item {
+    font-size: .76rem; padding: .25rem .6rem; border-radius: var(--r-pill);
+    background: var(--bg-muted); border: 1px solid var(--border-light); color: var(--text-secondary);
+  }
+  .gd-pipe__item--done { background: #d1fae5; border-color: var(--success); color: var(--success-dark); font-weight: 600; }
+  .gd-pipe__item--live { background: var(--brand-bg); border-color: var(--brand); color: var(--brand-dark); font-weight: 600; }
+  .gd-pipe__arrow { color: var(--text-muted); font-size: .75rem; }
+
+  /* 检查点列表 */
+  .gd-check { list-style: none; margin: 0; padding: 0; font-size: .8rem; }
+  .gd-check li { display: flex; gap: .45rem; padding: .3rem 0; border-bottom: 1px dashed var(--border-light); }
+  .gd-check li:last-child { border-bottom: 0; }
+
+  /* 客户端导航示意 */
+  .gd-app { display: flex; min-height: 9rem; }
+  .gd-app__nav {
+    flex: 0 0 5.6rem; background: var(--gray-800); color: #cbd5e1;
+    font-size: .74rem; padding: .6rem .5rem;
+  }
+  .gd-app__nav div { padding: .22rem .3rem; border-radius: 4px; }
+  .gd-app__nav .is-active { background: var(--brand); color: #fff; }
+  .gd-app__main { flex: 1 1 auto; padding: .6rem .7rem; min-width: 0; }
+
+  /* ---- 要点 / 避坑 ---- */
+  .gd-callout { border-radius: var(--r-md); padding: .7rem .9rem; font-size: .84rem; margin-top: .75rem; }
+  .gd-callout--tip { background: var(--brand-bg); border-left: 3px solid var(--brand); }
+  .gd-callout--warn { background: #fffbeb; border-left: 3px solid var(--warning); }
+  .gd-callout__title { font-weight: 600; margin-bottom: .2rem; font-size: .82rem; }
+  .gd-callout ul { margin: 0; padding-left: 1.1rem; }
+  .gd-callout li + li { margin-top: .15rem; }
+
+  /* ---- 本页目录 ---- */
+  .gd-toc .nav-link { font-size: .84rem; padding: .3rem .6rem; border-radius: var(--r-sm); color: var(--text-secondary); }
+  .gd-toc .nav-link:hover { background: var(--bg-muted); color: var(--brand-dark); }
+  .gd-toc__stage { font-size: .72rem; color: var(--text-muted); padding: .5rem .6rem .1rem; }
+
+  /* ---- 真实界面截图 ---- */
+  .gd-fig { margin: 0 0 1.1rem; }
+  .gd-fig img {
+    width: 100%; height: auto; display: block;
+    border: 1px solid var(--border); border-radius: var(--r-md);
+    box-shadow: var(--sh-card); background: var(--bg-white);
+  }
+  .gd-fig figcaption { font-size: .82rem; color: var(--text-secondary); margin-top: .55rem; }
+  .gd-fig__legend { list-style: none; margin: .45rem 0 0; padding: 0; font-size: .82rem; color: var(--text-secondary); }
+  .gd-fig__legend li { margin-bottom: .2rem; }
+  .gd-fig__legend b { color: var(--text-primary); }
+  .gd-num {
+    display: inline-block; width: 1.1rem; height: 1.1rem; margin-right: .35rem;
+    border-radius: 50%; background: #ef4444; color: #fff;
+    font-size: .7rem; font-weight: 700; line-height: 1.1rem; text-align: center;
+  }
+  .gd-fig__hint { font-size: .78rem; color: var(--text-muted); margin-top: .35rem; }
+  /* 图之后的文字区：宽屏两栏，窄屏一栏 */
+  .gd-notes { display: grid; grid-template-columns: 1fr; gap: 1.25rem; }
+
+  @media (min-width: 992px) {
+    .gd-notes { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  }
+
+  @media (max-width: 575.98px) {
+    .gd-hero { padding: 1.75rem 1.25rem; }
+    .gd-step__where { margin-left: 0; }
+  }
+</style>
+<% end %>
+
+<div class="container gd-page py-4">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-3">
+      <li class="breadcrumb-item"><%= link_to '首页', root_path %></li>
+      <li class="breadcrumb-item active" aria-current="page">脚本开发全流程</li>
+    </ol>
+  </nav>
+
+  <!-- ===== Hero ===== -->
+  <div class="gd-hero mb-4">
+    <h1 class="gd-hero__kicker">使用指南</h1>
+    <p class="gd-hero__lead mb-0">
+      这是清巡推荐的脚本开发流程：先在云端把脚本做出来，把判据定清楚，再拿到真实设备上验证；
+      结果不对就回到云端改进，直到确认可用。云端负责生成和验证，客户端负责连真实设备执行——
+      设备密码始终只存在你自己的客户端里。
+    </p>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <%= link_to scripts_path, class: 'btn btn-light' do %>
+        <i class="bi bi-lightning-charge me-1"></i>打开脚本生成器
+      <% end %>
+    </div>
+    <div class="gd-hero__facts">
+      <i class="bi bi-info-circle me-1"></i>脚本生成无需注册，自备大模型 API Key 即可；只有需要多台设备批量执行时才用到客户端。
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <!-- ===== 左侧目录 ===== -->
+    <div class="col-lg-3 d-none d-lg-block">
+      <div class="gd-toc card border-0 shadow-sm sticky-top" style="top: 1.25rem;">
+        <div class="card-body p-2">
+          <h6 class="text-muted mb-1 px-2 small fw-semibold">本页步骤</h6>
+          <nav class="nav flex-column">
+            <div class="gd-toc__stage">① 把需求说清楚</div>
+            <a class="nav-link" href="#step-1">1. 准备并脱敏日志</a>
+            <a class="nav-link" href="#step-2">2. 写目标，补全描述</a>
+            <div class="gd-toc__stage">② 云端生成与评估</div>
+            <a class="nav-link" href="#step-3">3. 自动化生成</a>
+            <a class="nav-link" href="#step-4">4. 看结果与评估结论</a>
+            <a class="nav-link" href="#step-5">5. 微调</a>
+            <div class="gd-toc__stage">③ 上真实环境验证</div>
+            <a class="nav-link" href="#step-6">6. 客户端实机执行</a>
+            <a class="nav-link" href="#step-7">7. 看日志，云端改进</a>
+            <div class="gd-toc__stage">④ 收尾</div>
+            <a class="nav-link" href="#step-8">8. 调试完成</a>
+          </nav>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 右侧正文 ===== -->
+    <div class="col-lg-9">
+
+      <!-- ---- 流程总览 ---- -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+          <h2 class="h5 fw-semibold mb-1">流程总览</h2>
+          <p class="text-muted small mb-4">
+            一共八个步骤，分四个阶段。第 4 步和第 5 步之间往往要来回几次，第 7 步之后也常常回到第 5 步再改一轮。
+            第一次就把脚本写对的情况很少，这很正常。
+          </p>
+
+          <div class="gd-stage">
+            <div class="gd-stage__title">① 把需求说清楚（云端）</div>
+            <div class="gd-stage__sub">脚本写得好不好，八成取决于这一步</div>
+            <div class="gd-nodes mt-2">
+              <div class="gd-node">
+                <div class="gd-node__no">1</div>
+                <div class="gd-node__text"><b>准备日志</b>真实执行一段操作，脱敏后备用</div>
+              </div>
+              <div class="gd-node">
+                <div class="gd-node__no">2</div>
+                <div class="gd-node__text"><b>写清目标</b>补齐判据，逐条确认待确认项</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="gd-stage">
+            <div class="gd-stage__title">② 云端生成与评估</div>
+            <div class="gd-stage__sub">自动测试会先跑一遍，结论要人工复核</div>
+            <div class="gd-nodes mt-2">
+              <div class="gd-node">
+                <div class="gd-node__no">3</div>
+                <div class="gd-node__text"><b>自动化生成</b>代码生成、自动测试、结果评估</div>
+              </div>
+              <div class="gd-node">
+                <div class="gd-node__no">4</div>
+                <div class="gd-node__text"><b>看结论</b>哪些检查点过了，哪些没过</div>
+              </div>
+              <div class="gd-node">
+                <div class="gd-node__no">5</div>
+                <div class="gd-node__text"><b>微调</b>改描述或代码，再生成一轮</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="gd-stage">
+            <div class="gd-stage__title">③ 上真实环境验证（客户端）</div>
+            <div class="gd-stage__sub">自动测试用的是你给的样例报文，真实设备上跑一遍才算数</div>
+            <div class="gd-nodes mt-2">
+              <div class="gd-node">
+                <div class="gd-node__no">6</div>
+                <div class="gd-node__text"><b>实机执行</b>下载客户端，挑一台非生产设备跑</div>
+              </div>
+              <div class="gd-node">
+                <div class="gd-node__no">7</div>
+                <div class="gd-node__text"><b>云端改进</b>把这次的日志送回云端重新生成</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="gd-stage mb-0">
+            <div class="gd-stage__title">④ 收尾</div>
+            <div class="gd-stage__sub">标记调试完成，脚本才能被任务选中</div>
+            <div class="gd-nodes mt-2">
+              <div class="gd-node">
+                <div class="gd-node__no">8</div>
+                <div class="gd-node__text"><b>调试完成</b>状态改为已调试，可批量下发</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="gd-fig__hint">
+            <i class="bi bi-info-circle me-1"></i>下面各步的截图都是产品的真实界面；示例里的设备名（core-sw-01）、IP（10.0.0.1）、日志与脚本内容都是为了演示编造的。
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 步骤 1 ===== -->
+      <div class="gd-step" id="step-1">
+        <div class="gd-step__head">
+          <div class="gd-step__no">1</div>
+          <h2 class="gd-step__title">准备一段真实的操作日志，并脱敏</h2>
+          <span class="gd-step__where"><i class="bi bi-pc-display me-1"></i>设备终端 + 云端脚本生成器</span>
+        </div>
+        <div class="gd-step__body">
+          <div class="gd-term mb-2"><span class="gd-prompt">&lt;core-sw-01&gt;</span> <span class="gd-cmd">display cpu-usage</span>
+CPU usage in 5 seconds:   12%
+CPU usage in 1 minute:    18%
+CPU usage in 5 minutes:   23%
+
+<span class="gd-prompt">&lt;core-sw-01&gt;</span> <span class="gd-cmd">display snmp-agent community read</span>
+Community name: <span class="gd-hole">public</span>          <span class="gd-dim">← 密码类信息，删掉</span>
+Interface IP:   <span class="gd-hole">10.20.30.41</span>     <span class="gd-dim">← 真实 IP，换成 10.0.0.1</span></div>
+          <div class="gd-shot__cap mb-4">
+            在设备上先手工敲一遍要做的事，把<strong>命令和设备回显一起</strong>复制出来。AI 要靠回显才知道输出长什么样、该怎么解析。
+          </div>
+
+          <figure class="gd-fig">
+            <img src="/images/guide/01-button.png" alt="脚本生成器页面：任务描述上方的「从手工日志生成」按钮" loading="lazy">
+            <figcaption>
+              <span class="gd-num">①</span>页面里的「从手工日志生成」按钮，就在任务描述框上方、和「如何编写描述」并排。
+              <ul class="gd-fig__legend">
+                <li><span class="gd-num">①</span>点它打开粘贴日志的弹窗（下一步）。</li>
+              </ul>
+            </figcaption>
+          </figure>
+
+          <div class="gd-notes">
+            <div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">动作</span>
+                打开<%= link_to '脚本生成器', scripts_path %>，点<strong>「从手工日志生成」</strong>，把日志粘进去。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">脱敏</span>
+                粘贴前先删掉密码、SNMP 社区串、真实 IP/MAC、设备名与序列号，换成 <code>10.0.0.1</code>、
+                <code>00:00:00:00:00:00</code> 这类占位值。日志会随请求发给大模型供应商。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">建议</span>
+                一次只放<strong>一个场景</strong>的日志，比如只查 CPU。如果这个脚本要分正常/异常两条路，
+                就分成两次日志，或者用后面的分支功能。
+              </div>
+            </div>
+            <div>
+              <div class="gd-callout gd-callout--warn mt-0">
+                <div class="gd-callout__title"><i class="bi bi-exclamation-triangle me-1"></i>常见问题</div>
+                <ul class="mb-0">
+                  <li><strong>只给命令不给回显</strong>：AI 拿不到报文字段，只能猜解析规则。</li>
+                  <li><strong>日志被终端截断</strong>：表格缺表头或最后几行，生成的解析必然对不上。</li>
+                  <li><strong>忘了脱敏</strong>：真实凭据、IP 会随请求发给大模型，并被保存为脚本需求的一部分。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 步骤 2 ===== -->
+      <div class="gd-step" id="step-2">
+        <div class="gd-step__head">
+          <div class="gd-step__no">2</div>
+          <h2 class="gd-step__title">写清目标，按提示补全需求描述</h2>
+          <span class="gd-step__where"><i class="bi bi-cloud me-1"></i>脚本生成器 · 手工日志弹窗</span>
+        </div>
+        <div class="gd-step__body">
+          <figure class="gd-fig">
+            <img src="/images/guide/02-dialog.png" alt="「从手工操作日志生成需求描述」弹窗：目标、手工操作日志、右下角生成框架按钮" loading="lazy">
+            <figcaption>
+              点「从手工日志生成」后弹出的窗口：
+              <ul class="gd-fig__legend">
+                <li><span class="gd-num">①</span><b>目标</b>：一句话说清要检查什么。写在最上面，AI 据此决定检查点和结论值。</li>
+                <li><span class="gd-num">②</span><b>手工操作日志</b>：把脱敏后的日志整段粘进来（命令 + 回显）。</li>
+                <li><span class="gd-num">③</span>点<b>「生成框架」</b>，让 AI 把日志整理成需求描述。</li>
+              </ul>
+              <div class="gd-fig__hint">框内示例数据（设备名 core-sw-01、日志内容）都是编的，可以照着这个格式写自己的。</div>
+            </figcaption>
+          </figure>
+
+          <figure class="gd-fig">
+            <img src="/images/guide/03-framework.png" alt="生成后的弹窗：左侧需求描述框架（可编辑），右侧待确认候选" loading="lazy">
+            <figcaption>
+              生成完成后，窗口变成左右两栏：
+              <ul class="gd-fig__legend">
+                <li><span class="gd-num">①</span><b>需求描述框架</b>：命令、报文、输出处理逻辑三段都齐了。日志里没有的判据留成<span class="gd-hole-text">【待确认#N】</span>占位。</li>
+                <li><span class="gd-num">②</span><b>待确认</b>：点候选词就填进左边框架，也可以自己写。全部点掉后再往下走。</li>
+              </ul>
+              <div class="gd-fig__hint">占位留着不填，生成时 AI 只能猜——这一步偷懒，后面就要多改两轮。</div>
+            </figcaption>
+          </figure>
+
+          <div class="gd-notes">
+            <div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">目标怎么写</span>
+                一句话说清<strong>查什么、什么算正常、不正常怎么办</strong>，AI 据此决定检查点与结论值。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">占位要点掉</span>
+                带【待确认#N】的占位会原样进入生成。逐个点候选或自己填，别留着。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">另一条路</span>
+                没有现成日志、或需求很简单时，直接用「自然语言描述」写需求，并填上支持的设备型号。
+              </div>
+            </div>
+            <div>
+              <div class="gd-callout gd-callout--tip mt-0">
+                <div class="gd-callout__title"><i class="bi bi-lightbulb me-1"></i>描述写得具体，后面就少改两轮</div>
+                把命令、报文、判据都写清楚，再点掉待确认项，AI 一次就能生成得比较准；
+                描述含糊，就得来回改好几轮。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 步骤 3 ===== -->
+      <div class="gd-step" id="step-3">
+        <div class="gd-step__head">
+          <div class="gd-step__no">3</div>
+          <h2 class="gd-step__title">自动化生成</h2>
+          <span class="gd-step__where"><i class="bi bi-cloud me-1"></i>脚本生成器 · 自动化生成</span>
+        </div>
+        <div class="gd-step__body">
+          <figure class="gd-fig">
+            <img src="/images/guide/04-generate.png" alt="脚本生成器：任务描述框里已填好描述，下方是自动化生成按钮与调试中状态" loading="lazy">
+            <figcaption>
+              描述填好后，页面长这样：
+              <ul class="gd-fig__legend">
+                <li><span class="gd-num">①</span><b>任务描述</b>：上一步的框架（或你自己写的描述）已经落到这里，可以直接改。</li>
+                <li><span class="gd-num">②</span>点<b>「自动化生成」</b>开始生成。右边的「微调」要在生成出脚本之后才可用。</li>
+              </ul>
+              <div class="gd-fig__hint">按钮右边那排是「微调 / 保存 / 调试完成 / 历史」，以及当前脚本状态徽标（这里显示「调试中」）。</div>
+            </figcaption>
+          </figure>
+
+          <div class="gd-notes">
+            <div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">动作</span>
+                点<strong>「自动化生成」</strong>，等它跑完（视脚本复杂度，几十秒到几分钟）。
+                过程依次是：代码生成、自动测试、结果评估、结果整合。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">中途暂停</span>
+                模型发现信息不够时会<strong>暂停并要求你确认</strong>（提示「生成暂停：需要您确认信息」），
+                补齐后继续——这是好事，说明它没在硬猜。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">费用</span>
+                使用你自己的大模型 Key 计费，平台不经手；
+                内部调多少次模型都算这一次。
+              </div>
+            </div>
+            <div>
+              <div class="gd-callout gd-callout--tip mt-0">
+                <div class="gd-callout__title"><i class="bi bi-shield-check me-1"></i>自动测试通过不等于能用</div>
+                自动测试通过，只说明生成的解析逻辑跟你给的样例报文对得上，不代表真实设备上一定对。
+                先把它当草稿，第 6 步到真实设备上跑一遍才算数。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 步骤 4 ===== -->
+      <div class="gd-step" id="step-4">
+        <div class="gd-step__head">
+          <div class="gd-step__no">4</div>
+          <h2 class="gd-step__title">看脚本、日志与评估结论</h2>
+          <span class="gd-step__where"><i class="bi bi-cloud me-1"></i>脚本生成器 · 脚本 / 分支映射</span>
+        </div>
+        <div class="gd-step__body">
+          <div class="gd-step__grid">
+            <div>
+              <div class="gd-shot">
+                <div class="gd-shot__bar">
+                  <span class="gd-shot__dots"><i></i><i></i><i></i></span>
+                  <span class="gd-shot__name">生成结果</span>
+                </div>
+                <div class="gd-shot__body">
+                  <div class="gd-row mb-2">
+                    <span class="gd-badge gd-badge--warn">调试中</span>
+                    <span class="gd-pill">脚本</span>
+                    <span class="gd-pill">分支映射</span>
+                  </div>
+                  <ul class="gd-check">
+                    <li><i class="bi bi-check-circle-fill text-success"></i><span class="gd-row__grow">提取 5 分钟平均值</span><span class="gd-badge gd-badge--ok">通过</span></li>
+                    <li><i class="bi bi-check-circle-fill text-success"></i><span class="gd-row__grow">正常场景（23% &lt; 80%）返回 normal</span><span class="gd-badge gd-badge--ok">通过</span></li>
+                    <li><i class="bi bi-x-circle-fill text-danger"></i><span class="gd-row__grow">告警场景（92% ≥ 80%）返回 alert</span><span class="gd-badge gd-badge--err">未通过</span></li>
+                  </ul>
+                  <div class="gd-callout gd-callout--warn mt-2 mb-0">
+                    <div class="gd-callout__title">评估结论</div>
+                    告警分支未被触发：样例报文里缺少超过阈值的数据，无法验证告警路径。
+                  </div>
+                </div>
+              </div>
+              <div class="gd-shot__cap">示意图：「脚本」页签看代码与检查点，「分支映射」页签看多分支——这块要在真的生成出脚本之后才会出现。</div>
+            </div>
+            <div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">看什么</span>
+                每条<strong>检查点</strong>是否通过、评估结论给出的原因。没通过往往不是代码错，而是
+                样例报文没覆盖到那条路径。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">状态徽标</span>
+                脚本只有两种状态：<span class="gd-badge gd-badge--warn">调试中</span> 与
+                <span class="gd-badge gd-badge--ok">调试完成</span>。改动或回滚都会退回「调试中」。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">别急着发布</span>
+                「调试中」的脚本<strong>不能被任务选中</strong>。这是故意的：没在真实设备上验证过的脚本，
+                不该被批量下发。
+              </div>
+              <div class="gd-callout gd-callout--tip">
+                <div class="gd-callout__title"><i class="bi bi-search me-1"></i>结论要自己复核</div>
+                模型说「通过」也要自己看一眼检查点的取值合不合理。阈值、结论值这些只有你知道业务上应该是什么，
+                模型猜不出来。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 步骤 5 ===== -->
+      <div class="gd-step" id="step-5">
+        <div class="gd-step__head">
+          <div class="gd-step__no">5</div>
+          <h2 class="gd-step__title">改描述或改代码，再生成一轮</h2>
+          <span class="gd-step__where"><i class="bi bi-cloud me-1"></i>脚本生成器 · 输入区 / 版本</span>
+        </div>
+        <div class="gd-step__body">
+          <figure class="gd-fig">
+            <img src="/images/guide/06-refine.png" alt="脚本生成器按钮条：微调、保存、历史按钮（生成出脚本后可用）" loading="lazy">
+            <figcaption>
+              生成出脚本之后，这排按钮就可以用了：
+              <ul class="gd-fig__legend">
+                <li><span class="gd-num">①</span><b>微调</b>：在已生成代码的基础上改，只动你指出的部分，并重新测试全部分支。判据、阈值这类改动优先走它。</li>
+                <li><span class="gd-num">②</span><b>保存</b>：存下当前内容，同时留一版历史。</li>
+                <li><span class="gd-num">③</span><b>历史</b>：看历次版本；改坏了可以把某一版回滚回来。</li>
+              </ul>
+              <div class="gd-fig__hint">也可以再点一次「自动化生成」整篇重来——代码框里已有内容时它会先问你是重新生成还是微调。</div>
+            </figcaption>
+          </figure>
+
+          <div class="gd-notes">
+            <div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">微调</span>
+                在任务描述里把要改的地方写清楚（比如「阈值改成大于等于 80%」），点<strong>「微调」</strong>。
+                它保留现有代码结构，只改你指出的部分，比整篇重新生成省事。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">直接改代码</span>
+                语法、格式这类小问题，也可以自己改代码框，改完点「保存」。这时状态会退回
+                <span class="gd-badge gd-badge--warn">调试中</span>。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">改坏了</span>
+                点「历史」找回上一版回滚。
+              </div>
+            </div>
+            <div>
+              <div class="gd-callout gd-callout--tip mt-0">
+                <div class="gd-callout__title"><i class="bi bi-arrow-repeat me-1"></i>第 4、5 步来回几次是常态</div>
+                比如：发现告警那条路没验证到，就补一段告警报文，微调一次，再看结论。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 步骤 6 ===== -->
+      <div class="gd-step" id="step-6">
+        <div class="gd-step__head">
+          <div class="gd-step__no">6</div>
+          <h2 class="gd-step__title">下载客户端，在真实环境跑一遍</h2>
+          <span class="gd-step__where"><i class="bi bi-window-stack me-1"></i>客户端 · 设备管理 / 任务列表</span>
+        </div>
+        <div class="gd-step__body">
+          <div class="gd-step__grid">
+            <div>
+              <div class="gd-shot">
+                <div class="gd-shot__bar">
+                  <span class="gd-shot__dots"><i></i><i></i><i></i></span>
+                  <span class="gd-shot__name">清巡客户端</span>
+                </div>
+                <div class="gd-shot__body p-0">
+                  <div class="gd-app">
+                    <div class="gd-app__nav">
+                      <div class="is-active">任务列表</div>
+                      <div>设备管理</div>
+                      <div>我的脚本</div>
+                      <div>自定义集成</div>
+                      <div>升级管理</div>
+                      <div>配置</div>
+                    </div>
+                    <div class="gd-app__main">
+                      <div class="gd-row mb-2">
+                        <span class="gd-btn gd-btn--sm">新建任务</span>
+                        <span class="gd-pill">选择脚本 + 设备</span>
+                      </div>
+                      <div class="gd-kv">
+                        <b>core-sw-01</b> <span class="text-muted">10.0.0.1</span><br>
+                        <span class="text-muted small">密码只保存在本机加密存储中，不上云</span>
+                      </div>
+                      <div class="gd-row mt-2">
+                        <span class="gd-badge gd-badge--info">任务已创建</span>
+                        <span class="gd-kv">等待本机执行</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="gd-shot__cap">示意图：客户端里的设备与任务。设备凭据留在本地，云端只收到脚本与判定结果。</div>
+            </div>
+            <div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">装</span>
+                在<%= link_to '帮助', help_path %>页了解生成、验证与在真实设备上执行的完整流程。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">配</span>
+                客户端「配置」里填<strong>同一把大模型 API Key</strong>；「设备管理」添加设备。
+                密码、SSH 密钥存在本机，不上云。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">跑</span>
+                「任务列表」新建任务，选做好的脚本 + 设备，在本机执行。
+                <strong>第一次务必挑一台非生产设备</strong>（或只读命令）。
+              </div>
+              <div class="gd-callout gd-callout--warn">
+                <div class="gd-callout__title"><i class="bi bi-exclamation-triangle me-1"></i>注意</div>
+                <ul class="mb-0">
+                  <li>写操作类脚本（改配置、重启）先在测试设备上跑，别拿生产网元试。</li>
+                  <li>客户端和云端页面是两套独立的存储，凭据不互通，两边各填一次 Key。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 步骤 7 ===== -->
+      <div class="gd-step" id="step-7">
+        <div class="gd-step__head">
+          <div class="gd-step__no">7</div>
+          <h2 class="gd-step__title">看执行日志，把结果送回云端改进</h2>
+          <span class="gd-step__where"><i class="bi bi-window-stack me-1"></i>客户端 · 脚本日志</span>
+        </div>
+        <div class="gd-step__body">
+          <div class="gd-step__grid">
+            <div>
+              <div class="gd-shot">
+                <div class="gd-shot__bar">
+                  <span class="gd-shot__dots"><i></i><i></i><i></i></span>
+                  <span class="gd-shot__name">脚本日志 · 网元执行详情</span>
+                </div>
+                <div class="gd-shot__body">
+                  <div class="gd-row mb-1">
+                    <span class="gd-row__grow gd-kv"><b>CPU 巡检</b> · core-sw-01</span>
+                    <span class="gd-badge gd-badge--partial">部分通过</span>
+                  </div>
+                  <div class="gd-kv small mb-2">
+                    结论摘要：未通过 — 提取 5 分钟平均值（报文里没找到 <code>CPU usage in 5 minutes:</code>）
+                  </div>
+                  <div class="gd-row">
+                    <span class="gd-pill">查看日志</span>
+                    <span class="gd-btn gd-btn--sm">云端改进</span>
+                  </div>
+                </div>
+              </div>
+              <div class="gd-shot__cap">示意图：客户端里的脚本日志。状态有四种：成功、部分通过、失败、执行异常。</div>
+            </div>
+            <div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">看状态</span>
+                每台网元一行，先看<strong>状态</strong>：成功、部分通过、失败、执行异常。
+                再看<strong>结论摘要</strong>定位卡在哪一条检查点、原因是什么。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">看日志</span>
+                「查看日志」里有这次执行的完整回显。把真实回显和你当初给的样例报文比一比：
+                设备型号或版本不同，字段和格式常常对不上，所以必须在真实设备上跑一遍。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">云端改进</span>
+                点<strong>「云端改进」</strong>，这次日志和你的要求会一起送到云端的脚本生成页，日志已经帮你填好。
+                你在那里直接改描述、重新生成，不用自己复制粘贴。
+              </div>
+              <div class="gd-callout gd-callout--tip">
+                <div class="gd-callout__title"><i class="bi bi-shield-lock me-1"></i>送回云端之前，记得再看一眼日志</div>
+                日志会作为需求的一部分发给大模型，也可能被保存。送回去之前把密码、社区串、真实 IP 再清一遍
+                （这一点和第一步同样重要）。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 步骤 8 ===== -->
+      <div class="gd-step" id="step-8">
+        <div class="gd-step__head">
+          <div class="gd-step__no">8</div>
+          <h2 class="gd-step__title">调试完成</h2>
+          <span class="gd-step__where"><i class="bi bi-cloud me-1"></i>脚本生成器 · 调试完成</span>
+        </div>
+        <div class="gd-step__body">
+          <figure class="gd-fig">
+            <img src="/images/guide/05-publish.png" alt="脚本生成器按钮条：调试完成按钮与黄色的调试中状态徽标" loading="lazy">
+            <figcaption>
+              <ul class="gd-fig__legend">
+                <li><span class="gd-num">①</span>确认没问题后点<b>「调试完成」</b>（未填设备型号时会提示你补上）。</li>
+                <li><span class="gd-num">②</span>这个黄色徽标就是脚本状态：<b>调试中</b> / <b>调试完成</b>。改动或回滚都会退回「调试中」。</li>
+              </ul>
+              <div class="gd-fig__hint">状态改成「调试完成」之后，脚本才会出现在任务的可选列表里。</div>
+            </figcaption>
+          </figure>
+
+          <div class="gd-notes">
+            <div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">点之前确认</span>
+                自动测试的检查点都符合预期、在真实设备上执行过且结论和你的判断一致、设备型号已填写。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">然后</span>
+                回到客户端「任务列表」，选这台脚本 + 一批设备，批量执行。
+                多台设备的结果可以在任务报告里逐台核对。
+              </div>
+              <div class="gd-do">
+                <span class="gd-pill gd-pill--brand">以后</span>
+                设备升级、报文变了、判据要调，都回到第 5 步改。改完状态会退回「调试中」，再验证一遍即可。
+              </div>
+            </div>
+            <div>
+              <div class="gd-callout gd-callout--tip mt-0">
+                <div class="gd-callout__title"><i class="bi bi-check2-circle me-1"></i>走完这一遍之后</div>
+                这个脚本就能交给任务批量执行了。以后每次执行用的都是同一套命令、同一套判据，
+                结果也能逐条核对。
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 底部 CTA ===== -->
+      <div class="card border-0 shadow-sm mt-4">
+        <div class="card-body text-center py-4">
+          <h2 class="h5 fw-semibold mb-2">准备好了就从第一步开始</h2>
+          <p class="text-muted small mb-3">不需要注册，带上你的大模型 API Key 就能生成第一个脚本。</p>
+          <div class="d-flex flex-wrap gap-2 justify-content-center">
+            <%= link_to scripts_path, class: 'btn btn-primary' do %>
+              <i class="bi bi-lightning-charge me-1"></i>打开脚本生成器
+            <% end %>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<%# GEO：把"从手工日志到调试完成的完整流程"写成 HowTo 结构化数据，方便 AI 问答引擎
+    直接摘录步骤。步骤名称与页面里的 8 个步骤一一对应，改了步骤标题记得同步这里。 %>
+<% content_for :head_extra do %>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "怎么把手工操作设备的日志做成可用的自动化脚本",
+  "description": "从一段真实的手工操作日志出发，生成、验证并调试出可重复执行的网络设备 CLI 自动化脚本。",
+  "inLanguage": "zh-CN",
+  "totalTime": "PT30M",
+  "step": [
+    { "@type": "HowToStep", "position": 1, "name": "准备一段真实的操作日志，并脱敏" },
+    { "@type": "HowToStep", "position": 2, "name": "写清目标，按提示补全需求描述" },
+    { "@type": "HowToStep", "position": 3, "name": "自动化生成" },
+    { "@type": "HowToStep", "position": 4, "name": "看脚本、日志与评估结论" },
+    { "@type": "HowToStep", "position": 5, "name": "改描述或改代码，再生成一轮" },
+    { "@type": "HowToStep", "position": 6, "name": "下载客户端，在真实环境跑一遍" },
+    { "@type": "HowToStep", "position": 7, "name": "看执行日志，把结果送回云端改进" },
+    { "@type": "HowToStep", "position": 8, "name": "调试完成" }
+  ]
+}
+</script>
+<% end %>

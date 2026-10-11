@@ -1,0 +1,74 @@
+<div class="container-fluid mb-5">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0"><i class="bi bi-plus-lg"></i> 新建任务</h1>
+    <%= link_to tasks_path, class: 'btn btn-outline-secondary btn-sm' do %>
+      <i class="bi bi-arrow-left me-1"></i>返回任务列表
+    <% end %>
+  </div>
+
+  <%= form_with url: tasks_path, method: :post, local: true do |f| %>
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label fw-medium">任务名称</label>
+          <%= f.text_field :name, name: 'task[name]', class: 'form-control', required: true, autocomplete: 'off',
+                           value: @task.name, placeholder: '例如：核心交换机日常巡检' %>
+        </div>
+        <div class="mb-0">
+          <label class="form-label fw-medium">描述</label>
+          <%= text_area_tag 'task[description]', @task.description, class: 'form-control', rows: 2 %>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-hdd-network me-1"></i>选择设备</h6></div>
+          <div class="card-body">
+            <% if @devices.any? %>
+              <% @devices.each do |device| %>
+                <div class="form-check">
+                  <%= check_box_tag 'device_ids[]', device.id, false, class: 'form-check-input', id: "device_#{device.id}" %>
+                  <label class="form-check-label" for="device_<%= device.id %>">
+                    <%= device.name %> <span class="text-muted small"><%= device.device_model %></span>
+                  </label>
+                </div>
+              <% end %>
+            <% else %>
+              <p class="text-muted mb-0">
+                还没有设备。<%= link_to '去添加设备', network_elements_path %>后再创建任务。
+              </p>
+            <% end %>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-file-earmark-code me-1"></i>选择脚本</h6></div>
+          <div class="card-body">
+            <% if @scripts.any? %>
+              <% @scripts.each do |script| %>
+                <div class="form-check">
+                  <%= check_box_tag 'script_ids[]', script.id, false, class: 'form-check-input', id: "script_#{script.id}" %>
+                  <label class="form-check-label" for="script_<%= script.id %>">
+                    <%= script.name %> <span class="text-muted small"><%= script.description %></span>
+                  </label>
+                </div>
+              <% end %>
+            <% else %>
+              <p class="text-muted mb-0">
+                还没有脚本。<%= link_to '去生成脚本', scripts_path %>并保存后再创建任务。
+              </p>
+            <% end %>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4">
+      <button type="submit" class="btn btn-primary">创建任务</button>
+    </div>
+  <% end %>
+</div>

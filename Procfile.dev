@@ -1,0 +1,2 @@
+web: bin/rails server
+# 不再需要 worker 行：队列已改用进程内 :async 适配器（见 config/application.rb）

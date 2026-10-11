@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0d9488">
+    <meta name="msapplication-TileColor" content="#0d9488">
+    <%# 页面级 head 钩子。首页（@marketing）有自己的 title/描述/OG/canonical/结构化数据，
+        没有钩子的话这些会随 layout:false 一起丢掉。 %>
+    <title><%= content_for?(:title) ? yield(:title) : '清巡 - 网络设备自动化平台' %></title>
+    <meta name="description" content="<%= content_for?(:description) ? yield(:description) : 'AI驱动的网络设备自动化平台，支持自然语言脚本生成与安全执行' %>">
+    <% if content_for?(:keywords) %><meta name="keywords" content="<%= yield(:keywords) %>"><% end %>
+    <%# 规范链接：搜索引擎/AI 引擎据此判定页面的权威 URL（去掉查询串，避免 ?utm_* / ?script_uid= 被当成不同页面）。
+        页面可用 content_for :canonical 覆盖——首页与其别名 /welcome 都要指向根路径。 %>
+    <link rel="canonical" href="<%= content_for?(:canonical) ? yield(:canonical) : canonical_url %>">
+    <link rel="icon" type="image/svg+xml" href="/images/logo.svg">
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+    <%= yield :head_extra %>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="/vendor/stylesheets/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="/vendor/stylesheets/bootstrap-icons.css">
+    <!-- Highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="/vendor/stylesheets/github.min.css">
+    <%# 品牌基座：token 与基础排版，全站共用。必须排在页面级样式之前 %>
+    <link href="/stylesheets/brand.css?v=<%= File.mtime(Rails.root.join('public/stylesheets/brand.css')).to_i %>" rel="stylesheet">
+    <%# 页面级样式：营销页与应用页各一份，互不相干。
+        public/ 下的样式没有资产指纹，不加版本号的话改完样式用户仍会命中旧缓存。 %>
+    <% if @marketing %>
+      <link href="/stylesheets/landing.css?v=<%= File.mtime(Rails.root.join('public/stylesheets/landing.css')).to_i %>" rel="stylesheet">
+    <% else %>
+      <link href="/stylesheets/application.css?v=<%= File.mtime(Rails.root.join('public/stylesheets/application.css')).to_i %>" rel="stylesheet">
+    <% end %>
+
+    <script>
+        // 性能指标收集
+        let metrics = {};
+        const observer = new PerformanceObserver((list) => {
+            const entries = list.getEntries();
+            entries.forEach((entry) => {
+                switch (entry.entryType) {
+                    case 'navigation':
+                        {
+                            const navEntry = entry;
+                            metrics = {
+                                ...metrics,
+                                dns: navEntry.domainLookupEnd - navEntry.domainLookupStart,
+                                response: navEntry.responseEnd - navEntry.responseStart,
+                                dom_parse: navEntry.domInteractive - navEntry.responseEnd,
+                                dom_ready: navEntry.domContentLoadedEventEnd - navEntry.fetchStart,
+                                resource: navEntry.domComplete - navEntry.domContentLoadedEventEnd,
+                                first_interactive: navEntry.domInteractive - navEntry.fetchStart,
+                                first_byte: navEntry.responseStart - navEntry.domainLookupStart,
+                                loaded: navEntry.loadEventEnd - navEntry.fetchStart
+                            };
+                            sessionStorage.setItem('performance', JSON.stringify(metrics));
+                        }
+                        break;
+                    case 'paint':
+                        if (entry.name === 'first-paint') {
+                            metrics = { ...metrics, first_paint: entry.startTime };
+                            sessionStorage.setItem('performance', JSON.stringify(metrics));
+                        }
+                        if (entry.name === 'first-contentful-paint') {
+                            metrics = { ...metrics, first_contentful_paint: entry.startTime };
+                            sessionStorage.setItem('performance', JSON.stringify(metrics));
+                        }
+                        break;
+                }
+            });
+        });
+        observer.observe({ entryTypes: ['navigation', 'paint'] });
+    </script>
+
+    <script>
+        // 主题初始化 - 固定使用 light 主题
+        const initTheme = () => {
+            const metaThemeColorTag = document.querySelector('meta[name="theme-color"]');
+            const prefersTheme = 'light';
+            localStorage.theme = prefersTheme;
+            document.documentElement.classList.add('light');
+            metaThemeColorTag.setAttribute('content', '#f4f5f7');
+        };
+        initTheme();
+    </script>
+
+    <script>
+        // 炫酷的控制台介绍
+        (function () {
+            const logoLines = [
+                '%c██████╗ ███████╗██████╗ ███╗   ███╗',
+                '%c██╔══██╗██╔════╝██╔══██╗████╗ ████║',
+                '%c██████╔╝█████╗  ██████╔╝██╔████╔██║',
+                '%c██╔══██╗██╔══╝  ██╔══██╗██║╚██╔╝██║',
+                '%c██║  ██║███████╗██║  ██║██║ ╚═╝ ██║',
+                '%c╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝'
+            ];
+            const logoColors = [
+                'color: #0d9488; font-family: monospace; font-size: 12px;',
+                'color: #2dd4bf; font-family: monospace; font-size: 12px;',
+                'color: #5eead4; font-family: monospace; font-size: 12px;',
+                'color: #0d9488; font-family: monospace; font-size: 12px;',
+                'color: #115e59; font-family: monospace; font-size: 12px;',
+                'color: #0f766e; font-family: monospace; font-size: 12px;'
+            ];
+
+            console.log(
+                '%c🚀 欢迎来到 清巡 🚀',
+                'color: #0d9488; font-size: 20px; font-weight: bold; text-shadow: 0 0 10px #0d9488;'
+            );
+            logoLines.forEach((line, index) => console.log(line, logoColors[index]));
+            console.log('');
+            console.log(
+                '%c🔧 网络设备自动化平台',
+                'color: #0d9488; font-size: 14px; font-weight: bold;'
+            );
+            console.log('%c🧠 AI 驱动脚本生成', 'color: #2dd4bf; font-size: 12px;');
+            console.log('%c🔒 混合架构 · 安全可靠', 'color: #115e59; font-size: 12px;');
+            console.log('%c⚡ 简单脚本 5 分钟获得', 'color: #0f766e; font-size: 12px;');
+            console.log('');
+            console.log('%c---', 'color: #ddd;');
+            console.log(
+                '%c由 ❤️ 和大量 ☕ 驱动',
+                'color: #db2777; font-size: 11px; font-style: italic;'
+            );
+        })();
+    </script>
+</head>
+<body>
+    <%# 开源版：LLM Key 由服务端配置（config/qingxun.yml）维护，前端不再加载本地凭据存储脚本。 %>
+    <!-- Splash Screen -->
+    <%# 闪屏只在应用页出现；首页要的是即时可见的全幅首屏 %>
+    <% unless @marketing %>
+    <div id="splash-screen" style="
+        position: fixed;
+        z-index: 9999;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: var(--bg-muted);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        transition: opacity 0.3s ease-out;
+    ">
+        <img id="logo" style="
+            position: absolute;
+            width: auto;
+            height: 5rem;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        " src="/images/logo.svg" alt="清巡">
+
+        <div style="
+            position: absolute;
+            top: 60%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 10rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        ">
+            <div style="position: relative; width: 10rem; margin-top: 0.5rem">
+                <div id="progress-background" style="
+                    position: absolute;
+                    width: 100%;
+                    height: 0.25rem;
+                    border-radius: 9999px;
+                    background-color: var(--border-light);
+                    display: none;
+                "></div>
+                <div id="progress-bar" style="
+                    position: absolute;
+                    width: 0%;
+                    height: 0.25rem;
+                    border-radius: 9999px;
+                    background-color: var(--brand);
+                    display: none;
+                "></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 隐藏 splash screen
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                var splash = document.getElementById('splash-screen');
+                if (splash) {
+                    splash.style.opacity = '0';
+                    setTimeout(function() {
+                        splash.style.display = 'none';
+                    }, 300);
+                }
+            }, 100);
+        });
+    </script>
+
+    <style>
+        html {
+            overflow-y: scroll !important;
+        }
+        #splash-screen {
+            background: var(--bg-muted);
+        }
+        html.dark #splash-screen {
+            background: #141618;
+        }
+        #progress-background {
+            display: none;
+        }
+        #progress-bar {
+            display: none;
+        }
+    </style>
+    <% end %>
+
+    <%= render 'shared/navbar' %>
+
+    <%# Flash消息显示 %>
+    <% flash.each do |type, message| %>
+      <% next if message.blank? %>
+      <% alert_class = case type.to_sym
+                       when :notice, :success then "alert-success"
+                       when :alert, :error, :danger then "alert-danger"
+                       else "alert-info"
+                       end %>
+      <div class="container-fluid mt-3">
+        <div class="alert <%= alert_class %> alert-dismissible fade show" role="alert">
+          <%= message %>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      </div>
+    <% end %>
+
+    <%# 两种模式都包在 main 里：结构一致，且页脚能靠 body>main 的 flex 规则在
+        内容不足一屏时贴到视口底部。差异只有类名（营销页不加容器内边距，首页 hero 要全幅）。 %>
+    <% if @marketing %>
+      <main class="marketing-main">
+        <%= yield %>
+      </main>
+    <% else %>
+      <main class="container-fluid site-main">
+        <%= yield %>
+      </main>
+    <% end %>
+
+    <%= render 'shared/footer' %>
+
+    <!-- Bootstrap 5 JS Bundle with Popper -->
+    <script src="/vendor/javascripts/bootstrap.bundle.min.js"></script>
+    <!-- Highlight.js -->
+    <script src="/vendor/javascripts/highlight.min.js"></script>
+    <!-- Marked.js for Markdown rendering -->
+    <script src="/marked.min.js"></script>
+    <!-- Custom JavaScript -->
+    <%= javascript_include_tag "application", "data-turbo-track": "reload", defer: true %>
+</body>
+</html>

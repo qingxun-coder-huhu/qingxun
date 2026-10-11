@@ -1,0 +1,9 @@
+<div class="container-fluid mb-5">
+  <h1 class="h3 mb-4"><i class="bi bi-plus-lg"></i> 添加设备</h1>
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <%= render 'form', network_element: @network_element %>
+    </div>
+  </div>
+  <div class="mt-3"><%= link_to '返回设备列表', network_elements_path, class: 'btn btn-outline-secondary btn-sm' %></div>
+</div>

@@ -1,0 +1,150 @@
+<div class="container-fluid mb-5">
+  <div class="row mb-4">
+    <div class="col">
+      <div class="d-flex justify-content-between align-items-center">
+        <h1 class="h3 mb-0"><i class="bi bi-hdd-network"></i> 设备管理</h1>
+        <%= link_to scripts_path, class: 'btn btn-outline-secondary btn-sm' do %>
+          <i class="bi bi-arrow-left me-1"></i>返回脚本生成器
+        <% end %>
+      </div>
+      <p class="text-muted mt-2 mb-0">
+        这里维护连接真实设备所需的信息。登录密码由服务端加密存储，不会出现在日志或页面源码中。
+        配置好后即可在任务里选择设备下发脚本执行。
+      </p>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-5">
+      <div class="card shadow-sm">
+        <div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-plus-lg me-1"></i>添加设备</h6></div>
+        <div class="card-body">
+          <%= render 'form', network_element: @network_element %>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-7">
+      <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+          <h6 class="mb-0"><i class="bi bi-list-ul me-1"></i>设备清单</h6>
+          <span class="small text-muted">共 <%= @network_elements.size %> 台</span>
+        </div>
+        <div class="card-body p-0">
+          <% if @network_elements.any? %>
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>名称</th>
+                    <th>型号</th>
+                    <th>地址</th>
+                    <th>方式</th>
+                    <th class="text-end">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% @network_elements.each do |device| %>
+                    <tr>
+                      <td><%= device.name %></td>
+                      <td class="text-muted small"><%= device.device_model %></td>
+                      <td class="text-muted small"><%= device.ip_address %><%= ":#{device.port}" if device.port %></td>
+                      <td class="small"><%= device.connection_type.to_s.upcase %></td>
+                      <td class="text-end">
+                        <%= button_to test_connection_network_element_path(device), method: :post,
+                                      class: 'btn btn-sm btn-outline-primary',
+                                      form: { class: 'd-inline' } do %>
+                          <i class="bi bi-plug me-1"></i>测试连接
+                        <% end %>
+                        <button type="button" class="btn btn-sm btn-outline-secondary edit-device-button"
+                                data-id="<%= device.id %>"
+                                data-name="<%= device.name %>"
+                                data-model="<%= device.device_model %>"
+                                data-ip="<%= device.ip_address %>"
+                                data-port="<%= device.port %>"
+                                data-connection-type="<%= device.connection_type %>"
+                                data-username="<%= device.username %>"
+                                data-enable-command="<%= device.enable_command %>">
+                          <i class="bi bi-pencil me-1"></i>编辑
+                        </button>
+                        <%= button_to network_element_path(device), method: :delete,
+                                      class: 'btn btn-sm btn-outline-danger',
+                                      form: { class: 'd-inline device-delete-form' } do %>
+                          <i class="bi bi-trash me-1"></i>删除
+                        <% end %>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          <% else %>
+            <div class="text-center text-muted py-5">
+              <i class="bi bi-inbox fs-1 d-block mb-2"></i>还没有设备，先在左侧添加一台。
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="device-edit-modal" tabindex="-1" aria-labelledby="device-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <%= form_with url: network_elements_path, method: :patch, html: { id: 'device-edit-form' } do %>
+        <div class="modal-header">
+          <h5 class="modal-title" id="device-edit-label">编辑设备</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label fw-medium">设备名称</label><input type="text" name="network_element[name]" id="edit-name" class="form-control" required></div>
+            <div class="col-md-6"><label class="form-label fw-medium">设备型号</label><input type="text" name="network_element[device_model]" id="edit-model" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label fw-medium">IP / 主机名</label><input type="text" name="network_element[ip_address]" id="edit-ip" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label fw-medium">端口</label><input type="number" name="network_element[port]" id="edit-port" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label fw-medium">连接方式</label>
+              <select name="network_element[connection_type]" id="edit-connection-type" class="form-select">
+                <option value="telnet">Telnet</option><option value="ssh">SSH</option>
+              </select>
+            </div>
+            <div class="col-md-4"><label class="form-label fw-medium">登录账号</label><input type="text" name="network_element[username]" id="edit-username" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label fw-medium">登录密码</label><input type="password" name="network_element[password]" class="form-control" placeholder="留空则不改" autocomplete="new-password"></div>
+            <div class="col-md-4"><label class="form-label fw-medium">提权命令</label><input type="text" name="network_element[enable_command]" id="edit-enable-command" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label fw-medium">提权密码</label><input type="password" name="network_element[enable_password]" class="form-control" placeholder="留空则不改" autocomplete="new-password"></div>
+            <div class="col-md-8"><label class="form-label fw-medium">备注</label><input type="text" name="network_element[description]" class="form-control"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var form = document.getElementById('device-edit-form');
+    if (!form) { return; }
+    document.querySelectorAll('.edit-device-button').forEach(function (button) {
+      button.addEventListener('click', function () {
+        form.action = '/network_elements/' + button.dataset.id;
+        document.getElementById('edit-name').value = button.dataset.name || '';
+        document.getElementById('edit-model').value = button.dataset.model || '';
+        document.getElementById('edit-ip').value = button.dataset.ip || '';
+        document.getElementById('edit-port').value = button.dataset.port || '';
+        document.getElementById('edit-connection-type').value = button.dataset.connectionType || 'telnet';
+        document.getElementById('edit-username').value = button.dataset.username || '';
+        document.getElementById('edit-enable-command').value = button.dataset.enableCommand || '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('device-edit-modal')).show();
+      });
+    });
+    document.querySelectorAll('.device-delete-form').forEach(function (f) {
+      f.addEventListener('submit', function (event) {
+        if (!window.confirm('确定删除该设备吗？其历史执行记录也会一并删除。')) { event.preventDefault(); }
+      });
+    });
+  })();
+</script>

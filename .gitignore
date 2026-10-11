@@ -1,0 +1,41 @@
+# ===== 密钥与本地配置（绝不入库）=====
+/.env
+/.env.*
+!/.env.example
+/config/qingxun.yml
+/config/master.key
+/config/credentials/*.key
+
+# ===== 数据库与运行时状态 =====
+/db/*.sqlite3
+/db/*.db
+/log/*
+/logs/*
+/tmp/*
+/storage/*
+!/log/.keep
+!/logs/.keep
+!/tmp/.keep
+!/storage/.keep
+
+# LLM 交互日志（运行时产生，含会话内容）
+/logs/llm_sessions/
+
+# ===== 依赖与构建产物 =====
+/vendor/bundle
+/qingxun_gems/
+/node_modules/
+/public/assets/
+/public/packs/
+/public/download_client/
+/release/
+/coverage/
+
+# ===== 编辑器 / 系统 =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.byebug_history
+.idea/
+.vscode/

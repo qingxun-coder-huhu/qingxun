@@ -1,0 +1,44 @@
+<% content_for :title, '常见问题与帮助 | 清巡' %>
+<% content_for :description, '清巡常见问题：需要注册吗、识别码怎么用、设备密码会不会上传、脚本在哪里执行、大模型怎么计费。' %>
+<% content_for :keywords, '清巡帮助,常见问题,识别码,设备凭证,大模型计费' %>
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <h1 class="h3 fw-semibold mb-4">常见问题与帮助</h1>
+
+      <div class="accordion" id="help-faq">
+        <% @faqs.each_with_index do |faq, index| %>
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="faq-heading-<%= index %>">
+              <button class="accordion-button <%= 'collapsed' unless index.zero? %>" type="button"
+                      data-bs-toggle="collapse" data-bs-target="#faq-body-<%= index %>"
+                      aria-expanded="<%= index.zero? %>" aria-controls="faq-body-<%= index %>">
+                <%= faq[:question] %>
+              </button>
+            </h2>
+            <div id="faq-body-<%= index %>" class="accordion-collapse collapse <%= 'show' if index.zero? %>"
+                 aria-labelledby="faq-heading-<%= index %>" data-bs-parent="#help-faq">
+              <div class="accordion-body text-muted"><%= faq[:answer] %></div>
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <p class="text-muted small mt-4 mb-0">
+        没找到答案？看<a href="/guide">使用指南</a>与<a href="/script_generation_help">如何编写描述</a>，
+        或直接从<a href="/scripts">脚本生成器</a>开始。
+      </p>
+    </div>
+  </div>
+</div>
+
+<%# GEO：把上面的问答同时以 FAQPage 结构化数据输出，AI 问答引擎可直接引用 %>
+<% content_for :head_extra do %>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": <%= raw(@faqs.map { |f| { '@type' => 'Question', 'name' => f[:question], 'acceptedAnswer' => { '@type' => 'Answer', 'text' => f[:answer] } } }.to_json) %>
+}
+</script>
+<% end %>

@@ -1,0 +1,57 @@
+# 清巡（Qingxun）开源版 · 自建部署
+#
+# 用法：
+#   1) cp .env.example .env 并填写 SECRET_KEY_BASE / DATABASE_PASSWORD 等；
+#   2) cp config/qingxun.yml.example config/qingxun.yml 并填入 LLM Key
+#      （也可改由环境变量 QINGXUN_LLM_API_KEY 提供，见下方 app.environment）；
+#   3) docker compose up -d，然后访问 http://<host>:3000
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-qingxun}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-qingxun}
+      POSTGRES_DB: ${DATABASE_NAME_PROD:-qingxun_production}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-qingxun}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment:
+      RAILS_ENV: production
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?请在 .env 中设置 SECRET_KEY_BASE}
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-qingxun}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-qingxun}
+      DATABASE_NAME_PROD: ${DATABASE_NAME_PROD:-qingxun_production}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      SITE_ORIGIN: ${SITE_ORIGIN:-}
+      # 也可用环境变量提供 LLM Key / 端点（优先级低于 config/qingxun.yml）
+      QINGXUN_LLM_API_KEY: ${QINGXUN_LLM_API_KEY:-}
+      QINGXUN_LLM_API_URL: ${QINGXUN_LLM_API_URL:-}
+      QINGXUN_LLM_MODEL: ${QINGXUN_LLM_MODEL:-}
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    volumes:
+      # 业务配置（LLM Key 等）；不存在时可为空的命名卷，或改用上面的环境变量
+      - ./config/qingxun.yml:/app/config/qingxun.yml:ro
+      # 持久化运行时数据：LLM 交互日志与临时脚本
+      - app_logs:/app/logs
+      - app_tmp:/app/tmp
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  app_logs:
+  app_tmp:
