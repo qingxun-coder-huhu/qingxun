@@ -41,44 +41,47 @@ class TasksController < ApplicationController
     }
   end
 
-  # GET /tasks/new
-  def new
-    @task = current_user.tasks.new
-  end
-
-  # GET /tasks/new_data —— 新建任务页的选择池（与编辑页结构一致）
-  def new_data
-    render json: {
-      task: { id: nil, name: '', description: '' },
-      devices: devices_pool,
-      scripts: scripts_pool,
-      selected_device_ids: [],
-      selected_script_ids: []
-    }
-  end
-
-  # POST /tasks
-  def create
-    @task = current_user.tasks.new(name: task_params[:name], description: task_params[:description])
-    script_ids = Array(params[:script_ids]).reject(&:blank?)
-    device_ids = Array(params[:device_ids]).reject(&:blank?)
-
-    if script_ids.empty? || device_ids.empty?
-      return respond_create_failure(@task, '请至少选择一台设备和一个脚本')
+  # POST /tasks/natural
+  #
+  # 自然语言生成任务：对齐客户端 —— AI 按设备型号匹配用户的设备与「调试完成」的脚本，
+  # 生成任务定义后落成任务。设备/脚本集合仍拍平成 Task 的关联（开源版任务模型是"设备集合 + 脚本集合"）。
+  def create_from_natural_language
+    natural_language = params[:natural_language].to_s.strip
+    if natural_language.empty?
+      return render json: { success: false, error: '请输入任务描述' }, status: :bad_request
     end
 
-    # 先保存任务本身，再挂关联：join 模型校验 task_id 必须存在
-    return respond_create_failure(@task, @task.errors.full_messages.join('；')) unless @task.save
-
-    attach_associations(@task, device_ids, script_ids)
-    if @task.save
-      respond_to do |format|
-        format.json { render json: { success: true, task_id: @task.id, path: task_path(@task) } }
-        format.html { redirect_to task_path(@task), notice: '任务已创建，可点击「运行」下发执行' }
-      end
-    else
-      respond_create_failure(@task, @task.errors.full_messages.join('；'))
+    result = TaskCreationFromNaturalLanguageService.new(current_user, natural_language).call
+    unless result[:success]
+      payload = { success: false, error: result[:error] }
+      payload[:code] = result[:code] if result[:code]
+      return render json: payload
     end
+
+    info = TaskInfoConverter.convert(task_json: result[:data])
+    device_ids = info[:devices].map { |d| TaskInfoConverter.id_of(d) }.compact
+    script_ids = info[:scripts].map { |s| TaskInfoConverter.id_of(s) }.compact
+
+    # 只认本人设备、且「调试完成」的脚本：LLM 回传的 id 必须再经一次作用域校验
+    devices = current_user.network_elements.where(id: device_ids)
+    scripts = current_user.scripts.debugged.where(id: script_ids)
+
+    if devices.empty? || scripts.empty?
+      return render json: { success: false, error: '没有匹配到可执行的设备或脚本，请调整描述后重试', code: 'no_match' }
+    end
+
+    # 命名与客户端一致：AI生成任务: <描述前 21 字>...
+    @task = current_user.tasks.new(name: "AI生成任务: #{natural_language[0..20]}...", description: natural_language)
+    unless @task.save
+      return render json: { success: false, errors: @task.errors.full_messages }, status: :unprocessable_entity
+    end
+
+    attach_associations(@task, devices.pluck(:id), scripts.pluck(:id))
+    unless @task.save
+      return render json: { success: false, errors: @task.errors.full_messages }, status: :unprocessable_entity
+    end
+
+    render json: { success: true, task_id: @task.id, path: task_path(@task) }
   end
 
   # PATCH /tasks/:id
@@ -211,19 +214,6 @@ class TasksController < ApplicationController
 
   def task_params
     params.require(:task).permit(:name, :description)
-  end
-
-  def respond_create_failure(task, message)
-    respond_to do |format|
-      format.json { render json: { success: false, errors: [message] }, status: :unprocessable_entity }
-      format.html do
-        @task = task
-        @scripts = current_user.scripts.order(created_at: :desc)
-        @devices = current_user.network_elements.order(created_at: :desc)
-        flash.now[:alert] = message
-        render :new, status: :unprocessable_entity
-      end
-    end
   end
 
   def attach_associations(task, device_ids, script_ids)

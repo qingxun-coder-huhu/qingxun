@@ -1,1 +1,140 @@
-<%= render 'form', mode: 'edit', task_id: @task.id %>
+<%# 编辑任务：布局对齐本地客户端 task_edit —— 基本信息（只读统计）+ 「型号 → 设备 → 脚本」树勾选。
+     保存只提交选择（设备集合 + 脚本集合）。树逻辑在 /js/task-tree.js（与新建页共用）。 %>
+<% content_for :head_late do %>
+  <link rel="stylesheet" href="/vendor/element-plus/index.css">
+<% end %>
+
+<style>
+  [v-cloak] { display: none; }
+  #task-edit-app .el-card__header { border-bottom: none; }
+  #task-edit-app .card-title { margin: 0; font-size: 16px; font-weight: 600; color: #303133; }
+  #task-edit-app .info-grid { display: flex; flex-wrap: wrap; gap: 8px 40px; }
+  #task-edit-app .info-item { display: inline-flex; align-items: baseline; gap: 6px; }
+  #task-edit-app .info-label { font-size: 13px; color: #909399; }
+  #task-edit-app .info-value { font-size: 14px; color: #303133; }
+  #task-edit-app .info-value--primary { font-weight: 600; color: #409eff; }
+  #task-edit-app .info-value--muted { color: #606266; }
+  #task-edit-app .node-label--device { font-weight: 500; }
+  #task-edit-app .node-label--script { color: #606266; }
+</style>
+
+<div class="container-fluid mb-5" id="task-edit-app" v-cloak>
+  <div class="d-flex justify-content-end mb-3">
+    <el-button @click="goBack">返回列表</el-button>
+  </div>
+
+  <div v-loading="loadingTree">
+    <el-card v-if="task" class="mb-3">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h2 class="card-title">基本信息</h2>
+          <div>
+            <el-button type="primary" :loading="saving" @click="saveTask">保存</el-button>
+            <el-button @click="goBack">取消</el-button>
+          </div>
+        </div>
+      </template>
+      <div class="info-grid">
+        <span class="info-item"><span class="info-label">任务名称</span><span class="info-value info-value--primary">{{ task.name }}</span></span>
+        <span class="info-item"><span class="info-label">设备数</span><span class="info-value">{{ totalDeviceCount }}</span></span>
+        <span class="info-item"><span class="info-label">已选择</span><span class="info-value">{{ selectedDeviceCount }}</span></span>
+      </div>
+      <div v-if="task.description" class="mt-2">
+        <span class="info-label">描述</span>
+        <span class="info-value info-value--muted">{{ task.description }}</span>
+      </div>
+    </el-card>
+
+    <el-card v-if="task">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h2 class="card-title">选择网元和脚本</h2>
+          <div>
+            <el-button size="small" @click="expandAll">展开全部</el-button>
+            <el-button size="small" @click="collapseAll">收起全部</el-button>
+            <el-button size="small" @click="checkAll">全选</el-button>
+            <el-button size="small" @click="uncheckAll">全不选</el-button>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="treeData.length === 0" class="text-center text-muted" style="padding:40px">
+        <p>暂无可选择的设备或脚本</p>
+        <el-button type="primary" size="small" @click="load">刷新</el-button>
+      </div>
+      <el-tree
+        v-else
+        ref="taskTree"
+        :data="treeData"
+        :props="treeProps"
+        show-checkbox
+        node-key="id"
+        :default-expanded-keys="expandedKeys"
+        :default-checked-keys="checkedKeys"
+        :indent="30"
+        @check="onCheck"
+      >
+        <template #default="{ node, data }">
+          <span>
+            <span :class="{ 'node-label--device': data.type === 'device', 'node-label--script': data.type === 'script' }">{{ node.label }}</span>
+            <span v-if="data.type === 'device'" class="ms-2 small text-muted">
+              <el-tag size="small" type="info">{{ data.ip }}</el-tag>
+              <span v-if="data.description" class="ms-2">{{ data.description }}</span>
+            </span>
+          </span>
+        </template>
+      </el-tree>
+    </el-card>
+  </div>
+</div>
+
+<script src="/vendor/javascripts/vue.global.prod.js"></script>
+<script src="/vendor/element-plus/index.full.js"></script>
+<script src="/js/task-tree.js"></script>
+<script>
+  (function () {
+    const { createApp, ref } = Vue;
+    const taskId = <%= raw(@task.id.to_json) %>;
+
+    createApp({
+      setup() {
+        const task = ref(null);
+        const saving = ref(false);
+
+        const tree = QingxunTaskTree.create({
+          dataUrl: '/tasks/' + taskId + '/edit_data',
+          onLoaded: (data) => { task.value = data.task || {}; }
+        });
+
+        const goBack = () => { window.location.href = '/tasks'; };
+
+        const saveTask = async () => {
+          saving.value = true;
+          try {
+            const sel = tree.payload();
+            if (sel.device_ids.length === 0 || sel.script_ids.length === 0) {
+              ElementPlus.ElMessage.warning('请至少选择一台设备和一个脚本');
+              return;
+            }
+            const response = await fetch('/tasks/' + taskId, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content, 'Accept': 'application/json' },
+              body: JSON.stringify({
+                task: { name: task.value.name, description: task.value.description },
+                device_ids: sel.device_ids,
+                script_ids: sel.script_ids
+              })
+            });
+            const data = await response.json();
+            if (data.success) { window.location.href = data.path; }
+            else { ElementPlus.ElMessage.error((data.errors || ['保存失败']).join('；')); }
+          } finally { saving.value = false; }
+        };
+
+        tree.load();
+
+        return Object.assign({ task, saving, goBack, saveTask }, tree);
+      }
+    }).use(ElementPlus).mount('#task-edit-app');
+  })();
+</script>

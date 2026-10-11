@@ -132,7 +132,7 @@
 </div>
 
 <script>
-  window.__devicesScripts = <%= raw(@scripts.map { |s| { id: s.id, name: s.name, description: s.description, device_models: s.device_models } }.to_json) %>;
+  window.__devicesScripts = <%= raw(json_escape(@scripts.map { |s| { id: s.id, name: s.name, description: s.description, device_models: s.device_models } }.to_json)) %>;
 </script>
 <script src="/vendor/javascripts/vue.global.prod.js"></script>
 <script src="/vendor/element-plus/index.full.js"></script>

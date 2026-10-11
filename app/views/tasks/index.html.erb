@@ -1,4 +1,5 @@
-<%# 任务列表：Vue 3 + Element Plus，对齐本地客户端 tasks 页（去掉自然语言建任务，那是云端功能）。 %>
+<%# 任务列表：Vue 3 + Element Plus，对齐本地客户端 tasks 页。
+     创建任务的唯一入口是顶部的自然语言卡片（POST /tasks/natural），没有手工新建页。 %>
 <% content_for :head_late do %>
   <link rel="stylesheet" href="/vendor/element-plus/index.css">
 <% end %>
@@ -7,47 +8,58 @@
   [v-cloak] { display: none; }
   #tasks-app .el-card__header { border-bottom: none; }
   #tasks-app .card-title { margin: 0; font-size: 16px; font-weight: 600; color: #303133; }
+  /* 自然语言生成任务：文本域与按钮并排一行 */
+  #tasks-app .nl-create { display: flex; align-items: flex-end; gap: 10px; }
+  #tasks-app .nl-create .el-textarea { flex: 1; min-width: 0; }
+  #tasks-app .nl-create .el-button { flex-shrink: 0; }
 </style>
 
 <div class="container-fluid mb-5" id="tasks-app" v-cloak>
-  <el-card>
+  <el-card class="mb-3">
     <template #header>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2 class="card-title">任务列表</h2>
-        <el-button type="primary" @click="goNew">新建任务</el-button>
-      </div>
+      <h2 class="card-title">自然语言生成任务</h2>
     </template>
+    <div class="nl-create">
+      <el-input
+        v-model="nlDescription"
+        type="textarea"
+        :rows="2"
+        resize="none"
+        placeholder="用一句话描述任务，例如：巡检所有华为设备"
+      ></el-input>
+      <el-button type="primary" :loading="creating" @click="createTask">生成任务</el-button>
+    </div>
+  </el-card>
 
+  <el-card>
     <el-table :data="tasks" stripe style="width:100%" v-loading="loading">
       <el-table-column label="任务名称" min-width="180">
         <template #default="scope">
           <el-link type="primary" @click="goDetail(scope.row.id)">{{ scope.row.name }}</el-link>
         </template>
       </el-table-column>
-      <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip></el-table-column>
       <el-table-column label="状态" width="100">
         <template #default="scope"><el-tag :type="getStatusType(scope.row.status)" size="small">{{ scope.row.status_text }}</el-tag></template>
       </el-table-column>
-      <el-table-column label="进度" width="160">
+      <el-table-column label="进度" width="120">
         <template #default="scope">
           <el-progress :percentage="scope.row.progress || 0" :stroke-width="6"></el-progress>
         </template>
       </el-table-column>
-      <el-table-column prop="device_count" label="设备数" width="80" align="center"></el-table-column>
-      <el-table-column prop="script_count" label="脚本数" width="80" align="center"></el-table-column>
-      <el-table-column label="创建时间" width="170">
+      <el-table-column prop="device_count" label="设备数" width="72" align="center"></el-table-column>
+      <el-table-column label="创建时间" width="150">
         <template #default="scope">{{ formatTime(scope.row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="150" fixed="right">
         <template #default="scope">
           <el-button type="primary" size="small" link @click="goDetail(scope.row.id)">详情</el-button>
           <el-button type="warning" size="small" link @click="goEdit(scope.row.id)">编辑</el-button>
-          <el-button v-if="!scope.row.running" type="success" size="small" link @click="startTask(scope.row)">启动</el-button>
-          <el-button type="danger" size="small" link @click="removeTask(scope.row)">删除</el-button>
+          <el-button v-if="scope.row.status === 'pending'" type="success" size="small" link @click="startTask(scope.row)">启动</el-button>
         </template>
       </el-table-column>
     </el-table>
-    <el-empty v-if="!loading && tasks.length === 0" description="还没有任务，点击右上角「新建任务」创建"></el-empty>
+    <el-empty v-if="!loading && tasks.length === 0" description="还没有任务，在上方用一句话描述需求即可生成"></el-empty>
   </el-card>
 </div>
 
@@ -62,6 +74,8 @@
       setup() {
         const tasks = ref([]);
         const loading = ref(true);
+        const creating = ref(false);
+        const nlDescription = ref('');
 
         const load = async () => {
           loading.value = true;
@@ -69,6 +83,22 @@
             const response = await fetch('/tasks.json', { headers: { 'Accept': 'application/json' } });
             tasks.value = await response.json();
           } finally { loading.value = false; }
+        };
+
+        // 自然语言生成任务：AI 匹配设备/脚本后建任务，成功即跳详情
+        const createTask = async () => {
+          if (!nlDescription.value.trim()) { ElementPlus.ElMessage.warning('请输入任务描述'); return; }
+          creating.value = true;
+          try {
+            const response = await fetch('/tasks/natural', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf(), 'Accept': 'application/json' },
+              body: JSON.stringify({ natural_language: nlDescription.value })
+            });
+            const data = await response.json();
+            if (data.success) { window.location.href = data.path || ('/tasks/' + data.task_id); }
+            else { ElementPlus.ElMessage.error(data.error || (data.errors || ['生成任务失败']).join('；')); }
+          } finally { creating.value = false; }
         };
 
         const formatTime = (value) => {
@@ -80,7 +110,6 @@
         };
         const getStatusType = (s) => ({ pending: 'warning', running: 'primary', completed: 'success', failed: 'danger', cancelled: 'info' }[s] || 'info');
 
-        const goNew = () => { window.location.href = '/tasks/new'; };
         const goDetail = (id) => { window.location.href = '/tasks/' + id; };
         const goEdit = (id) => { window.location.href = '/tasks/' + id + '/edit'; };
 
@@ -94,17 +123,8 @@
           else { ElementPlus.ElMessage.error(data.error || '启动失败'); }
         };
 
-        const removeTask = async (row) => {
-          if (!window.confirm('确定删除该任务吗？其执行记录也会一并删除。')) return;
-          const response = await fetch('/tasks/' + row.id, {
-            method: 'DELETE',
-            headers: { 'X-CSRF-Token': csrf(), 'Accept': 'application/json' }
-          });
-          if ((await response.json()).success) { await load(); }
-        };
-
         onMounted(load);
-        return { tasks, loading, formatTime, getStatusType, goNew, goDetail, goEdit, startTask, removeTask };
+        return { tasks, loading, creating, nlDescription, formatTime, getStatusType, goDetail, goEdit, startTask, createTask };
       }
     }).use(ElementPlus).mount('#tasks-app');
   })();

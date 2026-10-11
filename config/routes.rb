@@ -32,9 +32,11 @@ Rails.application.routes.draw do
   end
 
   # ---- 任务与设备 ----
-  resources :tasks, only: [:index, :show, :new, :create, :edit, :update, :destroy] do
+  # 创建任务的入口只有一个：POST /tasks/natural（自然语言），对齐客户端；没有手工新建页。
+  resources :tasks, only: [:index, :show, :edit, :update, :destroy] do
     collection do
-      get :new_data
+      # 自然语言生成任务（对齐客户端：POST /tasks/natural）
+      post :natural, action: :create_from_natural_language
     end
     member do
       post :run

@@ -23,6 +23,7 @@
 | --- | --- | --- | --- |
 | `app/services/{auto_generate,script_generation,script_evaluation,debug_session,branch_*,script_version_*,command_mapping_parser,fake_telnet_server_manager,description_draft_payload,script_requirement_draft_service,script_description_improvement_service,integration_code_builder,markdown_renderer}.rb` | `net_cat/app/services/` 同名 | **原样复制** | 可直接 diff 上游同名文件移植 |
 | `app/services/prompts*` | `net_cat/app/services/prompts*` | **原样复制** | 同上；提示词改动通常可直接带过来 |
+| `app/services/task_creation_from_natural_language_service.rb` | `net_cat/app/services/task_creation_from_natural_language_service.rb` | **复用改造** | 自检循环（生成→自检→并回需求重试，最多 5 轮）逐字保留；去掉云端专属的 `UserRequest` 请求记录与 `<task_requirement_enhancement_service>` require（该服务原实现也没用到）。依赖 `Prompts::TaskCreation`（已在 `prompts*` 内）与 `LlmRequestService` |
 | `lib/qingxun/**` | `net_cat/lib/qingxun/**` | **原样复制** | 脚本框架（DeviceScript/Sandbox/日志），上游改这里要同步 |
 | `lib/qingxun.rb`、`lib/qingxun_script.rb` | `net_cat/lib/` 同名 | 原样复制 | |
 | `lib/telnet_device.rb`、`lib/fake_telnet_server.rb` | `net_cat/lib/` 同名 | 原样复制 | 真机连接与模拟设备；上游的客户端接口（`ip_address`/`decrypt_password`）已在本仓库设备模型上对齐 |
@@ -42,8 +43,8 @@
 | `app/services/task_runner.rb` | 参考 `net_cat_client` 的 `task_execution_coordinator.rb` / `device_execution_processor.rb` | **移植改造** | 设备×脚本并发执行 |
 | `app/models/task_execution.rb` | 参考 `net_cat_client` 的 `local_task_execution.rb` | **移植改造** | 执行结果表 |
 | `app/controllers/network_elements_controller.rb`、`app/views/network_elements/**` | — | 新增 | 设备 CRUD + 测试连接 |
-| `app/controllers/tasks_controller.rb`、`app/views/tasks/**` | `net_cat` 的同名控制器/视图 | **重写** | 上游是"云端编排 + 客户端执行"的文件系统版，这里重写为单应用执行 |
-| `config/qingxun.yml.example`、`.env.example`、`docker-compose.yml`、`Dockerfile`、`bin/docker-entrypoint` | `net_cat` 的部署文件 | **重写** | 去掉私服镜像与生产密钥 |
+| `app/controllers/tasks_controller.rb`、`app/views/tasks/**` | `net_cat` 的同名控制器/视图 | **重写** | 上游是"云端编排 + 客户端执行"的文件系统版，这里重写为单应用执行。**创建任务的唯一入口对齐客户端**：`POST /tasks/natural`（自然语言 → `TaskCreationFromNaturalLanguageService` → `TaskInfoConverter` 拍平 → 建任务），页面即任务列表顶部的自然语言卡片；**没有手工"新建任务"页**（客户端也没有，已删除）。编辑页保留「型号→设备→脚本」树 |
+| `config/qingxun.yml.example`、`.env.example` | `net_cat` 的部署文件 | **重写** | 去掉私服镜像与生产密钥。**开源版不提供 Docker 启动方式**：`docker-compose.yml`、`Dockerfile`、`.dockerignore`、`bin/docker-entrypoint` 已删除，只保留本地运行 |
 | `config/initializers/active_record_encryption.rb` | — | 新增 | 设备密码加密密钥派生 |
 | `docs/OSS_SYNC_MAP.md`、`README.md`、`AGENTS*.md` | — | 新增/重写 | 本文件即同步契约 |
 
@@ -84,7 +85,7 @@ lib/telnet_device.rb
 | 管理后台 | `net_cat/app/controllers/admin/**`、`app/views/admin/**` | |
 | 邮件 / Sendflare | `net_cat/app/mailers/**`、`lib/sendflare_delivery.rb` | 无账号体系，默认不发邮件 |
 | API 用量遥测 / 请求日志 | `api_usage_logs` 表、`UserRequest` 模型 | 已用轻量 `GenerationRequestContext` 替代 |
-| 条款 / 隐私 / 文章 / SEO / 下载页 / sitemap | `net_cat/app/controllers/articles_controller.rb`、`app/views/pages/{landing,about,privacy,terms,download}*`、`content/**`、`public/llms.txt` | |
+| 条款 / 隐私 / 文章 / SEO / 下载页 / sitemap | `net_cat/app/controllers/articles_controller.rb`、`app/views/pages/{landing,about,privacy,terms,download}*`、`content/**`、`public/llms.txt` | 上游的营销向 `about` 落地页也一并删除 |
 | 本地客户端应用 | `net_cat_client/**` | 执行能力已并入本仓库 |
 | 计费 / 订阅 / 信用点 | `net_cat` 的相应迁移与模型 | 上游已移除 |
 | 部署密钥 / 生产配置 | `net_cat/config/deploy.yml`、`docker_cmd`、`.env.*`、`qingxun_gems/`、`release/` | 脱敏时删除 |
@@ -128,6 +129,8 @@ lib/telnet_device.rb
 | `public/js/script-log.js` | 客户端 `views/task_detail.erb` / `views/task_report.erb` 的**内联日志逻辑** | 客户端未把它抽成 JS 模块，这里抽成公共模块：`escapeLogHtml`/`renderLog`/`createLogRefresher`，任务详情页与报告页共用 |
 | `public/js/open-questions.js` | 客户端生成页「待确认」候选点击回填（内联逻辑） | 抽成公共模块 `createQuestionFiller`：点候选把【待确认#N】占位符填进描述（同一 id 多处一次全换、支持改选）；当前用于生成页「用执行日志改进」弹窗 |
 | `public/js/script-result.js` | 客户端两个页面**内联的检查点/结论/状态渲染** | 抽成公共模块：`checkpointsOf`/`failedCheckpointsOf`/`passedCount`/`failedCount`/`formatCheckpoint`/`checkpointClass`/`formatConclusion`/`getScriptStatusType`/`scriptStatusText` 等，两页共用 |
+| `public/js/task-tree.js` | 客户端 `views/task_edit.erb` 的**内联树选择逻辑** | 抽成公共模块 `QingxunTaskTree.create`，供任务编辑页使用。**行为改为 EP 原生级联**（不设 `check-strictly`）：勾型号/设备自动勾全部后代、后代全勾时父级自动勾上、部分勾选显示半选。客户端原实现把 `@check` 结果写回 `default-checked-keys` 的 ref，而该 prop 只在挂载时读一次，视觉上并不级联，默认态还会漏勾型号节点 —— 这里是有意修正，不逐字复用 |
+| `app/services/task_info_converter.rb` | 客户端 `lib/task_info_converter.rb` | **原样（含注释）复用** | 把"按型号分组的 task_json / 简单格式 / 包了 task_json 的格式"统一成 `{devices, scripts}` 按 id 去重 |
 
 **未复用（上游依赖云端/浏览器 Key）**：`public/js/cloud-improve-dialog.js`、`llm-key-store.js`。
 客户端的「云端改进」是：任务日志上传云端 → 返回一次性 URL → 在**云端生成页**里做改进。
